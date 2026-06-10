@@ -1,0 +1,16 @@
+{
+  // Shared compiler baseline for all packages (tech-stack §1: TS ~5.9.3, strict everywhere).
+  // Package-specific module/resolution settings live in each package's tsconfig.
+  // No `paths` magic: keep the repo friendly to tsgo and plain node resolution (tech-stack §1).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedSideEffectImports": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true
+  }
+}

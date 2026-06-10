@@ -1,0 +1,22 @@
+{
+  "name": "@codestead/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Codestead local daemon (M0 placeholder: starts, prints version, exits). Planned for npm release at M5 with bin `codestead`.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -b tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codestead/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.22.4"
+  }
+}

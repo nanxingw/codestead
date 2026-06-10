@@ -1,0 +1,18 @@
+{
+  // Release artifact: plain tsc-compiled ESM, no bundler (tech-stack §1).
+  // `node dist` must run directly — keep dist/ flat (src only, no tests).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "references": [{ "path": "../shared/tsconfig.build.json" }]
+}

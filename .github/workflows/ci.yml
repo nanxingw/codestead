@@ -1,0 +1,45 @@
+# Codestead CI — M1-phase matrix: ubuntu-latest x Node 22, single job (tech-stack §1 / §6 risk #12).
+#
+# Matrix expansion trigger (do NOT forget): as soon as M2 daemon code lands (PRD 03),
+# add macos-latest and Node 24 to the matrix — daemon's ps/tty/path behavior is
+# platform-sensitive and exactly the reliability surface we ship. This is scheduled
+# together with "M2 week 1: hook event recorder" (tech-stack §6 risk #12).
+#
+# Pipeline order is part of the M0 acceptance contract (PRD 00, user story 33):
+# frozen-lockfile install -> typecheck -> lint + format check -> test -> build.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version is declared ONCE in package.json#packageManager and read here
+      # (tech-stack §6 risk #11: do not depend on corepack).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (reproducible dependency tree)
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Lint + format check
+        run: pnpm lint && pnpm format:check
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm -r build

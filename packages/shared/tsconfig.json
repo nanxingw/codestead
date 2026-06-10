@@ -1,0 +1,13 @@
+{
+  // Broad config for IDE / ESLint type-aware linting / `tsc --noEmit` over src + tests.
+  // Build output is produced by tsconfig.build.json (src only).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

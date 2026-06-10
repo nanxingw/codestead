@@ -1,0 +1,10 @@
+{
+  // Solution file: `tsc -b` builds the three packages in dependency order
+  // (shared <- game / daemon, single direction; tech-stack §3).
+  "files": [],
+  "references": [
+    { "path": "packages/shared/tsconfig.build.json" },
+    { "path": "packages/game/tsconfig.build.json" },
+    { "path": "packages/daemon/tsconfig.build.json" }
+  ]
+}

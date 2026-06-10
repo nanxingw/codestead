@@ -55,8 +55,9 @@ pnpm workspaces monorepo（技术选型定稿见 docs/design/tech-stack.md）：
 
 ## 当前状态与路线图
 
-当前：仅文档，无代码。
+当前：M0 工程脚手架已落地（pnpm 三包 monorepo、shared 协议骨架、640×360 空场景游戏壳、daemon 占位入口、Vitest/ESLint/Prettier/CI 全链路），尚无玩法。
 
+- **M0 工程脚手架**（已完成）：monorepo、工具链、CI、协议与 theme token 骨架（合同：docs/prds/00-m0-scaffold.md）；
 - **M1 农场核心循环**：地图、角色移动、开垦、种植、生长、收割、出售、金币、游戏内时间系统；
 - **M2 会话 HUD**：daemon 雏形、hooks 集成、左上角状态面板；
 - **M3 建造与升级**：房屋建造、农场等级体系；

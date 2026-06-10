@@ -1,0 +1,10 @@
+packages:
+  - packages/*
+
+# 兑现 README「engines 不满足时安装即报错」：pnpm 默认对 engines 只警告，
+# engineStrict 使 Node 版本低于根 package.json engines 下限时 install 直接失败。
+engineStrict: true
+
+# pnpm 10 默认禁止依赖的 install 脚本；esbuild（Vite/Vitest 的底层）显式放行。
+onlyBuiltDependencies:
+  - esbuild

@@ -1,0 +1,12 @@
+{
+  // Broad config for IDE / ESLint type-aware linting / `tsc --noEmit` over src + tests.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]
+}

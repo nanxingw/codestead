@@ -1,0 +1,10 @@
+pnpm-lock.yaml
+**/dist/
+**/dist-types/
+**/coverage/
+.husky/
+docs/
+CLAUDE.md
+skills-lock.json
+.claude/
+.agents/
