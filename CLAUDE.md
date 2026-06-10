@@ -40,18 +40,18 @@ Codestead 用一个完整的游戏世界承接这些等待间隙：
 3. **本地与隐私优先**：工作内容（transcript、关卡上下文）只在本机处理，不上传任何服务器；
 4. **开源产品标准**：文档、安装体验、跨平台兼容都按可发布的开源产品要求来做。
 
-## 架构蓝图（规划，尚未实现）
+## 架构蓝图
 
-pnpm workspaces monorepo：
+pnpm workspaces monorepo（技术选型定稿见 docs/design/tech-stack.md）：
 
-- `packages/game` — 游戏客户端：Phaser 3 + TypeScript + Vite，跑在浏览器里；
+- `packages/game` — 游戏客户端：Phaser 3 + TypeScript + Vite，跑在浏览器里（Phaser 锁 3.90.0，升级 Phaser 4 的触发条件见 docs/design/tech-stack.md §7）；
 - `packages/daemon` — 本地守护进程：Node.js + TypeScript，
   - 会话监控：Claude Code hooks + 进程检测 → 会话状态机，
   - WebSocket 服务（localhost）向游戏推送状态，
   - 关卡生成：调用 headless Claude Code，基于会话上下文生成 NPC 任务；
 - `packages/shared` — daemon 与 game 共享的协议与类型定义。
 
-数据流：`Claude Code 会话 → (hooks / 进程检测) → daemon → WebSocket → 游戏 HUD 与 NPC 系统`
+数据流：`Claude Code 会话 → (hooks / 进程检测) → daemon → WebSocket → 游戏 HUD 与 NPC 系统`；M5 起 daemon 同端口静态托管游戏产物（`npx codestead` 单进程即完整产品）。
 
 ## 当前状态与路线图
 
@@ -66,6 +66,9 @@ pnpm workspaces monorepo：
 ## 开发约定
 
 - TypeScript everywhere；代码标识符与注释用英文，面向用户的文档中文优先（发布前补英文版）；
+- 协议与共享类型以 `packages/shared` 的 zod schema 为单一事实源，使用 **zod v4 API**（`z.toJSONSchema` 等）；跨边界数据一律 `safeParse`；
+- 游戏逻辑写在零 Phaser 依赖的纯 TS sim 层（可 headless 测试），Phaser 只做薄渲染壳，边界由 ESLint no-restricted-imports 强制；
+- 设计文档是数值与机制的事实源：docs/design/game-design.md（GDD）、hud-sessions.md、ai-quests.md、tech-stack.md；PRD 在 docs/prds/，是各里程碑范围与验收的合同；
 - 与项目所有者的交流使用简体中文；
 - 美术资产必须使用许可允许的素材（CC0 / 明确授权）——做的是星露谷「风格」，绝不能使用星露谷本体素材；
 - 默认分支 `main`，远程 `https://github.com/nanxingw/codestead`。
