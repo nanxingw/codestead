@@ -8,3 +8,6 @@
 # Python bytecode (skill scripts)
 __pycache__/
 *.pyc
+
+# 本机网络配置（不共享）
+.npmrc
