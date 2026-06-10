@@ -4,3 +4,7 @@
 
 # macOS
 .DS_Store
+
+# Python bytecode (skill scripts)
+__pycache__/
+*.pyc
