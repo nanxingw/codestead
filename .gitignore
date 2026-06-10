@@ -1,0 +1,6 @@
+# 本机 Claude Code 配置（含权限设置，不共享）
+.claude/settings.json
+.claude/settings.local.json
+
+# macOS
+.DS_Store
