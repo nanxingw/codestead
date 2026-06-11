@@ -71,6 +71,31 @@ export default tseslint.config(
   {
     files: ['packages/game/src/sim/**/*.ts'],
     rules: {
+      // Determinism second lock (PRD 01 US33 / GDD §2.2): sim/** has no wall clock and
+      // no engine randomness — only the serialized sfc32 rng. CI greps the same surface.
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'Date',
+          message: 'sim/** is deterministic — no wall clock (GDD §2.2, PRD 01 US33).',
+        },
+        {
+          name: 'performance',
+          message: 'sim/** is deterministic — no wall clock (GDD §2.2, PRD 01 US33).',
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "NewExpression[callee.name='Date']",
+          message: 'sim/** is deterministic — no wall clock (GDD §2.2, PRD 01 US33).',
+        },
+        {
+          selector: "MemberExpression[object.name='Math'][property.name='random']",
+          message:
+            'sim/** is deterministic — use the serialized sfc32 rng, never Math.random (GDD §2.2, PRD 01 US33).',
+        },
+      ],
       'no-restricted-imports': [
         'error',
         {

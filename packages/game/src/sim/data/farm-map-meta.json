@@ -1,0 +1,533 @@
+{
+  "width": 64,
+  "height": 48,
+  "tillable": [
+    {
+      "x": 22,
+      "y": 14,
+      "w": 8,
+      "h": 6
+    },
+    {
+      "x": 10,
+      "y": 14,
+      "w": 10,
+      "h": 6
+    },
+    {
+      "x": 18,
+      "y": 23,
+      "w": 12,
+      "h": 6
+    }
+  ],
+  "unlockGroups": [
+    {
+      "zoneId": "field_a",
+      "farmLevel": 1,
+      "rects": [
+        {
+          "x": 22,
+          "y": 14,
+          "w": 8,
+          "h": 6
+        }
+      ]
+    },
+    {
+      "zoneId": "field_b",
+      "farmLevel": 3,
+      "rects": [
+        {
+          "x": 10,
+          "y": 14,
+          "w": 10,
+          "h": 6
+        }
+      ]
+    },
+    {
+      "zoneId": "field_c",
+      "farmLevel": 5,
+      "rects": [
+        {
+          "x": 18,
+          "y": 23,
+          "w": 12,
+          "h": 6
+        }
+      ]
+    }
+  ],
+  "waterSources": [
+    {
+      "x": 21,
+      "y": 8
+    },
+    {
+      "x": 22,
+      "y": 8
+    },
+    {
+      "x": 21,
+      "y": 9
+    },
+    {
+      "x": 22,
+      "y": 9
+    },
+    {
+      "x": 10,
+      "y": 25
+    },
+    {
+      "x": 10,
+      "y": 35
+    },
+    {
+      "x": 11,
+      "y": 25
+    },
+    {
+      "x": 11,
+      "y": 35
+    },
+    {
+      "x": 12,
+      "y": 25
+    },
+    {
+      "x": 12,
+      "y": 35
+    },
+    {
+      "x": 13,
+      "y": 25
+    },
+    {
+      "x": 13,
+      "y": 34
+    },
+    {
+      "x": 14,
+      "y": 26
+    },
+    {
+      "x": 14,
+      "y": 33
+    },
+    {
+      "x": 15,
+      "y": 27
+    },
+    {
+      "x": 15,
+      "y": 32
+    },
+    {
+      "x": 16,
+      "y": 28
+    },
+    {
+      "x": 16,
+      "y": 31
+    },
+    {
+      "x": 17,
+      "y": 29
+    },
+    {
+      "x": 17,
+      "y": 30
+    },
+    {
+      "x": 5,
+      "y": 29
+    },
+    {
+      "x": 5,
+      "y": 30
+    },
+    {
+      "x": 6,
+      "y": 28
+    },
+    {
+      "x": 6,
+      "y": 31
+    },
+    {
+      "x": 7,
+      "y": 27
+    },
+    {
+      "x": 7,
+      "y": 32
+    },
+    {
+      "x": 8,
+      "y": 26
+    },
+    {
+      "x": 8,
+      "y": 33
+    },
+    {
+      "x": 9,
+      "y": 25
+    },
+    {
+      "x": 9,
+      "y": 34
+    }
+  ],
+  "spawn": {
+    "tile": {
+      "x": 27,
+      "y": 11
+    },
+    "facing": "down"
+  },
+  "interactables": [
+    {
+      "id": "house_door",
+      "kind": "door",
+      "tiles": [
+        {
+          "x": 27,
+          "y": 9
+        }
+      ]
+    },
+    {
+      "id": "shipping_bin",
+      "kind": "shipping_bin",
+      "tiles": [
+        {
+          "x": 33,
+          "y": 10
+        },
+        {
+          "x": 34,
+          "y": 10
+        }
+      ]
+    },
+    {
+      "id": "well",
+      "kind": "well",
+      "tiles": [
+        {
+          "x": 21,
+          "y": 8
+        },
+        {
+          "x": 22,
+          "y": 8
+        },
+        {
+          "x": 21,
+          "y": 9
+        },
+        {
+          "x": 22,
+          "y": 9
+        }
+      ]
+    },
+    {
+      "id": "shop_stall",
+      "kind": "shop",
+      "tiles": [
+        {
+          "x": 48,
+          "y": 19
+        },
+        {
+          "x": 49,
+          "y": 19
+        },
+        {
+          "x": 50,
+          "y": 19
+        },
+        {
+          "x": 51,
+          "y": 19
+        },
+        {
+          "x": 48,
+          "y": 20
+        },
+        {
+          "x": 49,
+          "y": 20
+        },
+        {
+          "x": 50,
+          "y": 20
+        },
+        {
+          "x": 51,
+          "y": 20
+        },
+        {
+          "x": 48,
+          "y": 21
+        },
+        {
+          "x": 49,
+          "y": 21
+        },
+        {
+          "x": 50,
+          "y": 21
+        },
+        {
+          "x": 51,
+          "y": 21
+        }
+      ]
+    },
+    {
+      "id": "bulletin_board",
+      "kind": "bulletin_board",
+      "tiles": [
+        {
+          "x": 54,
+          "y": 19
+        }
+      ]
+    },
+    {
+      "id": "signpost_junction",
+      "kind": "sign",
+      "tiles": [
+        {
+          "x": 32,
+          "y": 20
+        }
+      ]
+    },
+    {
+      "id": "gate_sign",
+      "kind": "sign",
+      "tiles": [
+        {
+          "x": 30,
+          "y": 46
+        },
+        {
+          "x": 31,
+          "y": 46
+        },
+        {
+          "x": 32,
+          "y": 46
+        },
+        {
+          "x": 33,
+          "y": 46
+        },
+        {
+          "x": 30,
+          "y": 47
+        },
+        {
+          "x": 31,
+          "y": 47
+        },
+        {
+          "x": 32,
+          "y": 47
+        },
+        {
+          "x": 33,
+          "y": 47
+        }
+      ]
+    },
+    {
+      "id": "intro_letter",
+      "kind": "letter",
+      "tiles": [
+        {
+          "x": 28,
+          "y": 10
+        }
+      ]
+    }
+  ],
+  "pickupSpots": [
+    {
+      "id": "pickup_wood_1",
+      "kind": "wood",
+      "tile": {
+        "x": 4,
+        "y": 3
+      }
+    },
+    {
+      "id": "pickup_wood_2",
+      "kind": "wood",
+      "tile": {
+        "x": 20,
+        "y": 2
+      }
+    },
+    {
+      "id": "pickup_wood_3",
+      "kind": "wood",
+      "tile": {
+        "x": 45,
+        "y": 2
+      }
+    },
+    {
+      "id": "pickup_wood_4",
+      "kind": "wood",
+      "tile": {
+        "x": 61,
+        "y": 10
+      }
+    },
+    {
+      "id": "pickup_wood_5",
+      "kind": "wood",
+      "tile": {
+        "x": 61,
+        "y": 30
+      }
+    },
+    {
+      "id": "pickup_wood_6",
+      "kind": "wood",
+      "tile": {
+        "x": 20,
+        "y": 45
+      }
+    },
+    {
+      "id": "pickup_stone_1",
+      "kind": "stone",
+      "tile": {
+        "x": 2,
+        "y": 20
+      }
+    },
+    {
+      "id": "pickup_stone_2",
+      "kind": "stone",
+      "tile": {
+        "x": 50,
+        "y": 2
+      }
+    },
+    {
+      "id": "pickup_stone_3",
+      "kind": "stone",
+      "tile": {
+        "x": 61,
+        "y": 40
+      }
+    },
+    {
+      "id": "pickup_stone_4",
+      "kind": "stone",
+      "tile": {
+        "x": 35,
+        "y": 45
+      }
+    },
+    {
+      "id": "pickup_flower_1",
+      "kind": "wildflower",
+      "tile": {
+        "x": 5,
+        "y": 24
+      }
+    },
+    {
+      "id": "pickup_flower_2",
+      "kind": "wildflower",
+      "tile": {
+        "x": 2,
+        "y": 8
+      }
+    },
+    {
+      "id": "pickup_flower_3",
+      "kind": "wildflower",
+      "tile": {
+        "x": 55,
+        "y": 24
+      }
+    }
+  ],
+  "buildPlots": [
+    {
+      "id": "build_coop",
+      "rect": {
+        "x": 42,
+        "y": 32,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": "build_workshop",
+      "rect": {
+        "x": 50,
+        "y": 32,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": "build_greenhouse",
+      "rect": {
+        "x": 44,
+        "y": 37,
+        "w": 8,
+        "h": 6
+      }
+    }
+  ],
+  "npcAnchors": [
+    {
+      "id": "carpenter_bench",
+      "tile": {
+        "x": 33,
+        "y": 9
+      }
+    },
+    {
+      "id": "market_stall",
+      "tile": {
+        "x": 49,
+        "y": 22
+      }
+    },
+    {
+      "id": "bulletin",
+      "tile": {
+        "x": 54,
+        "y": 20
+      }
+    },
+    {
+      "id": "pond_sluice",
+      "tile": {
+        "x": 11,
+        "y": 25
+      }
+    },
+    {
+      "id": "field_edge",
+      "tile": {
+        "x": 21,
+        "y": 16
+      }
+    }
+  ]
+}

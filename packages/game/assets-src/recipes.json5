@@ -1,0 +1,54 @@
+// assets-src/recipes.json5 — 资产再生产配方（GDD §11.7）。
+// M1 形态：vendor 包不入库（体积），按下表下载校验后用 tools/ 脚本重建 assets/**。
+// M5 将由 `pnpm assets:import` 自动化（sharp + maxrects-packer + tile-extruder）。
+{
+  vendorDir: '/tmp/kenney', // 可用环境变量 VENDOR_DIR 覆盖
+  vendor: [
+    {
+      id: 'roguelike-rpg-pack',
+      url: 'https://kenney.nl/media/pages/assets/roguelike-rpg-pack/12c03cd78b-1677697420/kenney_roguelike-rpg-pack.zip',
+      sha256: '8e7d2378f8f794245645f6d7dc7aeeb246791410a7e512293c594b46a5a9524b',
+      unzipTo: 'roguelike-rpg-pack',
+    },
+    {
+      id: 'impact-sounds',
+      url: 'https://kenney.nl/assets/impact-sounds', // 页面内取 zip 直链
+      sha256: '029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8',
+      unzipTo: 'impact-sounds',
+    },
+    {
+      id: 'interface-sounds',
+      url: 'https://kenney.nl/assets/interface-sounds',
+      sha256: 'f2193d072726d6758a5f7871b2dcc54dcce0d5c35c6f0a62f92549b327c81232',
+      unzipTo: 'interface-sounds',
+    },
+    {
+      id: 'rpg-audio',
+      url: 'https://kenney.nl/assets/rpg-audio',
+      sha256: '6dbeaf8544da958d8f2adcb4a4a4b76c1ade34a05f8ab9edccd327da7375f38b',
+      unzipTo: 'rpg-audio',
+    },
+    {
+      id: 'music-jingles',
+      url: 'https://kenney.nl/assets/music-jingles',
+      sha256: 'b729ba57959bd58793d2c5cafa348aaf2655d354f3da35ec4729e03ec77197b8',
+      unzipTo: 'music-jingles',
+    },
+    {
+      id: 'fusion-pixel-font',
+      url: 'https://github.com/TakWolf/fusion-pixel-font/releases/download/2026.05.07/fusion-pixel-font-12px-proportional-otf.woff2-v2026.05.07.zip',
+      sha256: 'fc10cd730d5970b7afacb7c37cd2ce3172e838c5dfabb7a947d29bd0fc881a3e',
+      unzipTo: 'font',
+    },
+  ],
+  build: [
+    'node assets-src/tools/build-terrain.mjs', // -> assets/tilesets/terrain.png
+    'node assets-src/tools/build-atlases.mjs', // -> assets/atlases/{crops,items,ui,characters}.{png,json}
+    'node assets-src/tools/build-audio.mjs', // -> assets/audio/**（water_pour 需要 ffmpeg）
+    'node assets-src/tools/gen-map.mjs', // -> maps/farm.tmj
+    'node scripts/check-map.mjs', // 校验 farm.tmj
+    'node assets-src/tools/gen-manifest.mjs', // -> assets/manifest.json（重算 sha256）
+    'pnpm exec prettier --write assets/manifest.json', // manifest 入库前统一格式
+    // 字体为发布 zip 内 woff2 + OFL.txt 的原样拷贝（见 manifest fonts 条目）
+  ],
+}

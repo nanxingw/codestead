@@ -1,6 +1,10 @@
 import Phaser from 'phaser';
 
 import { BootScene } from './scenes/BootScene';
+import { MainMenuScene } from './scenes/MainMenuScene';
+import { PreloadScene } from './scenes/PreloadScene';
+import { UIScene } from './scenes/UIScene';
+import { WorldScene } from './scenes/WorldScene';
 import { computeIntegerZoom, GAME_HEIGHT, GAME_WIDTH } from './scale';
 
 /**
@@ -22,9 +26,21 @@ const game = new Phaser.Game({
     zoom: computeIntegerZoom(window.innerWidth, window.innerHeight),
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene],
+  // Scene chain (M1 contract): Boot → Preload → MainMenu → World (US84), with UI
+  // launched in parallel as a persistent overlay (UIScene is never `start`ed
+  // standalone). The degraded boot path (storage dead) skips MainMenu.
+  scene: [BootScene, PreloadScene, MainMenuScene, WorldScene, UIScene],
 });
 
 window.addEventListener('resize', () => {
   game.scale.setZoom(computeIntegerZoom(window.innerWidth, window.innerHeight));
 });
+
+// E2E/debug handle (read-only by convention): lets smoke tests reach the scene
+// registry (sim snapshot, time driver) without affecting gameplay.
+declare global {
+  interface Window {
+    __codestead?: Phaser.Game;
+  }
+}
+window.__codestead = game;

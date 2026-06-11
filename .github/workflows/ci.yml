@@ -38,6 +38,20 @@ jobs:
       - name: Lint + format check
         run: pnpm lint && pnpm format:check
 
+      # Determinism second lock (PRD 01 US33 / GDD §2.2): the ESLint rules above are the
+      # first lock; this grep is the independent second one. sim/** (tests excluded) must
+      # never touch the wall clock or engine randomness. Comment lines are filtered out.
+      - name: Sim determinism grep (US33)
+        run: |
+          hits=$(grep -rnE 'Date\.now|performance\.now|new Date|Math\.random' \
+            packages/game/src/sim --include='*.ts' --exclude-dir=__tests__ \
+            | grep -vE '^[^:]*:[0-9]+:[[:space:]]*(//|\*)' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Nondeterminism in sim/** (GDD §2.2 / PRD 01 US33):"
+            echo "$hits"
+            exit 1
+          fi
+
       - name: Test
         run: pnpm test
 
