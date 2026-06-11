@@ -41,6 +41,11 @@ export const PAL = {
   uiPanelLight: hex('#4a3a30'),
   uiText: hex('#f4e3c2'),
   uiTextDim: hex('#9aa0a6'),
+  // Session-HUD tokens beyond the CODE-28 list, sanctioned by GDD §7.3/§7.4 +
+  // appendix A-8 and shared/src/theme.ts (hud-sessions §3.1/§3.2 verbatim).
+  hudUnknown: hex('#8a8198'),
+  hudPanelBg: hex('#14141c'),
+  hudPanelBorder: hex('#3a3a52'),
 };
 
 export const TRANSPARENT = [0, 0, 0, 0];

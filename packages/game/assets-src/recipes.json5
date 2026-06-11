@@ -35,6 +35,12 @@
       unzipTo: 'music-jingles',
     },
     {
+      id: 'ui-audio',
+      url: 'https://kenney.nl/assets/ui-audio', // 页面内取 zip 直链（M2 会话提示音）
+      sha256: '946fc23a63d535d693eb31b2eabb80c8c28d6351e2186b344ceb71b2cb1d5eb6',
+      unzipTo: 'ui-audio',
+    },
+    {
       id: 'fusion-pixel-font',
       url: 'https://github.com/TakWolf/fusion-pixel-font/releases/download/2026.05.07/fusion-pixel-font-12px-proportional-otf.woff2-v2026.05.07.zip',
       sha256: 'fc10cd730d5970b7afacb7c37cd2ce3172e838c5dfabb7a947d29bd0fc881a3e',

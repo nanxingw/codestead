@@ -17,6 +17,24 @@ import { SessionInfoSchema } from './session.js';
 
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * Heartbeat cadence (hud-sessions §10.3 P1, §8.1): daemon sends `heartbeat`
+ * every 25s; the client treats 75s (3 missed periods) without ANY message as
+ * stale data (HUD enters STALE — keep data, dim, append “数据可能过期”).
+ */
+export const HEARTBEAT_INTERVAL_MS = 25_000;
+export const HEARTBEAT_STALE_MS = 75_000;
+
+/*
+ * NOTE — there is deliberately NO error frame in this protocol.
+ * hud-sessions §10.1 defines the complete M2 message set (5 + 1 below).
+ * Rejections are expressed out-of-band:
+ * - bad/missing auth token, disallowed Origin → daemon closes the connection;
+ * - protocol mismatch → client compares `hello.payload.protocol` and enters
+ *   INCOMPATIBLE (hud-sessions §8.1);
+ * - hook POSTs always get an EMPTY 2xx, never a decision field (tech-stack §4.1-1).
+ */
+
 /** Envelope shape: every frame is `{ v: 1, type, payload }` (JSON text frames). */
 const versionLiteral = z.literal(PROTOCOL_VERSION);
 

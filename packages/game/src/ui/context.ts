@@ -25,8 +25,12 @@ export interface PauseController {
 
 /** Implemented by the audio system (world/render stream); 50ms dedupe lives there. */
 export interface UiAudio {
-  /** `detune` in cents (harvest_pop plays at ±10% pitch ≈ ±170 cents, GDD §6.4). */
-  play(key: SfxKey, opts?: { detune?: number }): void;
+  /**
+   * `detune` in cents (harvest_pop plays at ±10% pitch ≈ ±170 cents, GDD §6.4);
+   * `volume` 0..1 relative to the master bus (session chime plays at 0.4 —
+   * hud-sessions §3.4 音量 40%).
+   */
+  play(key: SfxKey, opts?: { detune?: number; volume?: number }): void;
   /** Settings panel pushes master volume (0..100) / muted immediately on change. */
   setMasterVolume(volume: number, muted: boolean): void;
 }

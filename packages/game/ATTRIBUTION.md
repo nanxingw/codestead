@@ -14,6 +14,7 @@
 | [Interface Sounds](https://kenney.nl/assets/interface-sounds)     | `seed_plant` / `harvest_pop` / `item_get` / `ui_error`                                                           | manifest                                      |
 | [RPG Audio](https://kenney.nl/assets/rpg-audio)                   | `coins`                                                                                                          | manifest                                      |
 | [Music Jingles](https://kenney.nl/assets/music-jingles)           | `jingle_levelup`（Pizzicato 07）                                                                                 | manifest                                      |
+| [UI Audio](https://kenney.nl/assets/ui-audio)                     | `session_chime`（click1；M2 会话面板提示音，客户端 40% 音量播放）                                                | manifest                                      |
 
 ## Fusion Pixel Font — OFL-1.1
 
@@ -25,6 +26,7 @@
 ## 自绘 / 程序生成 — 以 CC0-1.0 献出
 
 - 作物全部生长阶段帧、物品/种子袋/工具/HUD 图标、UI 9-slice、雨滴/水花特效、玩家四向行走与挥具动画：由 `assets-src/tools/build-atlases.mjs` 按 CODE-28 调色板（GDD §11.2）程序生成；manifest 中标注 `placeholder: true` 的帧计划在后续里程碑由 Aseprite 手绘替换（许可不变）。
+- M2 会话面板 8×8 状态图标（!/⚠/✓/◐×4 帧/○/?/⌁，含 `_hollow` 描边变体）与 `hud_panel` 9-slice：同管线自绘（hud-sessions §3.1/§12-D5 规格；HUD 色 token 见 GDD A-8/§7.4），以 CC0 献出。
 - 耕地干/湿 tile、水井 2×2、碰撞标记 tile：`assets-src/tools/build-terrain.mjs` 程序生成。
 - `water_pour.ogg`：Kenney 各包中无 CC0 浇水声，暂以 ffmpeg 合成的滤波噪声占位（self-made，CC0，manifest 标注 placeholder）。
 - `maps/farm.tmj`：按 GDD §1.3 分区表由 `assets-src/tools/gen-map.mjs` 生成。

@@ -144,7 +144,7 @@ codestead/
    - **ps 轮询（2s）**：`ps -axo pid=,ppid=,tty=,etime=,args=`，正则 `/(^|\/)claude( |$)/` 匹配首 token、tty 为 `??`/`?` 的 headless 排除。作用：发现未装 hooks 的会话（显式标 `unknown`）；hooks 报过 SessionStart 但进程消失（kill -9）→ 摘牌防幽灵会话。
 3. **状态机**：手写纯函数 `(state, signal) => state`，迁移幂等；每会话 `lastSignalAt`，全状态过期校验杜绝「卡在 working」；done→idle 由 UserPromptSubmit 消解 + 30 分钟超时降级（终端焦点检测列 M3+ 增强）；daemon 重启扫 `~/.claude/projects/**/*.jsonl` mtime 重建会话表。
 4. **推送**：状态变化经 `ws` 推给游戏——连接时全量 `snapshot`，之后增量 `sessionUpsert / sessionRemoved`，外加每 25s 一条 `heartbeat`。载荷字段以 §5 的 `SessionInfo` 全集为准（`sessionId / title / subtitle / cwd / state / since / lastSignalAt / source / error?`——此处原列法少了后三个字段，已按 `docs/design/hud-sessions.md` §10.4 裁决对齐：HUD 需要 `source` 区分低置信来源、`error` 渲染 API 错误态）；「载荷最小化」的语义保持不变＝**transcript 内容永不过 WS**。
-5. **安全**：只绑 `127.0.0.1`；校验 `Origin`（开发期放行 Vite origin，M5 daemon 托管后即同源）；首条消息携带本地 token。端点与 token 发现：daemon 写 `~/.codestead/daemon.json` 供 CLI/本机工具使用；**浏览器游戏端读不到本机文件**（原文「写入同文件供游戏发现」不可行，已按 hud-sessions.md §10.4 裁决修正），改经 `GET http://127.0.0.1:43110/handshake` 获取 `{ port, wsPath, token, daemonVersion }`，端口被占递增时游戏按 43110–43119 顺序探测。
+5. **安全**：只绑 `127.0.0.1`；校验 `Origin`——覆盖 `/handshake`、WS upgrade 与 `POST /hooks` 三个端点（带 Origin 头且不在白名单的 /hooks 请求仍回空 2xx 但丢弃 body，本地无 Origin 的 hook 客户端不受影响；裁决记录 hud-sessions §10.4-4），开发期放行 Vite origin，M5 daemon 托管后即同源；首条消息携带本地 token；纵深：WS `maxPayload` 64KB、Host 头仅放行 127.0.0.1 / localhost（抗 DNS rebinding）。端点与 token 发现：daemon 写 `~/.codestead/daemon.json` 供 CLI/本机工具使用；**浏览器游戏端读不到本机文件**（原文「写入同文件供游戏发现」不可行，已按 hud-sessions.md §10.4 裁决修正），改经 `GET http://127.0.0.1:43110/handshake` 获取 `{ port, wsPath, token, daemonVersion }`，端口被占递增时游戏按 43110–43119 顺序探测。
 
 ### 4.2 AI 关卡（M4）：会话上下文 → headless Claude → NPC 任务
 

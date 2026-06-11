@@ -57,6 +57,13 @@ const SOURCES = {
     author: 'Kenney (kenney.nl)',
     license: 'CC0-1.0',
   },
+  kenneyUiAudio: {
+    name: 'Kenney UI Audio',
+    url: 'https://kenney.nl/assets/ui-audio',
+    sha256: '946fc23a63d535d693eb31b2eabb80c8c28d6351e2186b344ceb71b2cb1d5eb6',
+    author: 'Kenney (kenney.nl)',
+    license: 'CC0-1.0',
+  },
   fusionPixel: {
     name: 'Fusion Pixel Font 12px proportional v2026.05.07',
     url: 'https://github.com/TakWolf/fusion-pixel-font',
@@ -152,6 +159,11 @@ const ENTRIES = [
   entry('assets/audio/jingles/jingle_levelup.ogg', 'kenneyJingles', {
     derivedFrom: ['Audio/Pizzicato jingles/jingles_PIZZI07.ogg'],
     processing: 'verbatim copy',
+  }),
+  entry('assets/audio/sfx/session_chime.ogg', 'kenneyUiAudio', {
+    derivedFrom: ['Audio/click1.ogg'],
+    processing:
+      'verbatim copy (M2 session-HUD soft click, hud-sessions §3.4 — client plays at 40% volume)',
   }),
   entry(
     'assets/fonts/fusion-pixel-12px/fusion-pixel-12px-proportional-zh_hans.otf.woff2',

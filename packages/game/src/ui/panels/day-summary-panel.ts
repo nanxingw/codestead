@@ -11,6 +11,7 @@
  */
 import type Phaser from 'phaser';
 
+import { formatDayEndSessionLine, stateCounts } from '../../hud/store';
 import { getCropDef } from '../../sim/data/crops';
 import { XP_THRESHOLDS } from '../../sim/data/constants';
 import { levelForXp } from '../../sim/leveling';
@@ -112,6 +113,26 @@ export class DaySummaryPanel implements Panel {
         : t('summary.weather_next_sunny'),
     );
     this.section(y, t('summary.tomorrow'), tomorrow);
+
+    // 会话一行 (hud-sessions §4.6 / PRD 03 US33): calm statement of the live
+    // session counts — non-zero groups only, no animation, no button. Omitted
+    // entirely when disconnected or with 0 sessions (the line, not a filler).
+    // The left-top panel itself is suppressed while this screen is up (§11-19).
+    const hud = this.host.sessionHud;
+    if (hud) {
+      const hudState = hud.hudState();
+      const line = formatDayEndSessionLine(stateCounts(hudState.sessions), hudState.conn.phase);
+      if (line !== null) {
+        this.track(
+          uiText(scene, cx, p.y + p.height - 34, line, {
+            color: PALETTE.ui.textDim,
+            align: 'center',
+          })
+            .setOrigin(0.5, 0)
+            .setDepth(DEPTH.panel + 1),
+        );
+      }
+    }
 
     this.track(
       uiText(scene, cx, p.y + p.height - 20, t('summary.continue'), {

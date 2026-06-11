@@ -4,7 +4,7 @@
  * Invariant (load-bearing, unit-tested): `depth() > 0 ⇔ sources() non-empty` — the
  * driver pauses the sim whenever the stack contributes at least one pause source
  * ("uiStack.length > 0 ⇔ sim 暂停"). Panels map onto the §2.4 PauseSource vocabulary:
- *   - pauseMenu / settings / keysHelp → 'menu'
+ *   - pauseMenu / settings / sessionSettings / keysHelp → 'menu'
  *   - inventory / shop / shippingBin / letter / board / sleepConfirm → 'dialog'
  *   - daySummary → 'day_summary' (the ONLY auto-opened modal)
  *
@@ -20,6 +20,7 @@ export type UiPanelId =
   | 'shippingBin'
   | 'pauseMenu'
   | 'settings'
+  | 'sessionSettings' // 设置 → 会话面板 sub-page (M2, hud-sessions §9/§12-D6)
   | 'keysHelp'
   | 'achievements'
   | 'daySummary'
@@ -31,6 +32,7 @@ export type UiPanelId =
 export const PANEL_PAUSE_SOURCE: Readonly<Record<UiPanelId, PauseSource>> = {
   pauseMenu: 'menu',
   settings: 'menu',
+  sessionSettings: 'menu', // 设置 → 会话面板 (M2)
   keysHelp: 'menu',
   achievements: 'menu', // Esc-menu 「成就」 tab (M1.5, PRD 02 US12)
   inventory: 'dialog',
@@ -46,6 +48,7 @@ export const PANEL_PAUSE_SOURCE: Readonly<Record<UiPanelId, PauseSource>> = {
 /** Panels allowed to be pushed on top of an existing panel (parent → children). */
 const NESTABLE: Readonly<Partial<Record<UiPanelId, readonly UiPanelId[]>>> = {
   pauseMenu: ['settings', 'keysHelp', 'achievements'],
+  settings: ['sessionSettings'], // 设置 → 会话面板 (GDD §6.5 M2 row; hud-sessions §9)
 };
 
 export class UiStackModel {

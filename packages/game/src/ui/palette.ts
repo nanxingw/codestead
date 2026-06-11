@@ -28,6 +28,15 @@ export const PALETTE = {
     text: '#f4e3c2',
     textDim: '#9aa0a6',
   },
+  /** M2 session-HUD panel chrome (hud-sessions §3.2 / GDD §7.4 verbatim values). */
+  hud: {
+    panelBg: '#14141c',
+    panelBorder: '#3a3a52',
+    /** Row highlight flash overlay color (white @ 12%, §3.2). */
+    highlight: '#ffffff',
+    /** Disconnect bar gray (§4.5 — same value as the unknown state token). */
+    disconnected: '#8a8198',
+  },
 } as const;
 
 /** `#rrggbb` → Phaser numeric color. */

@@ -9,6 +9,7 @@
  */
 import type Phaser from 'phaser';
 
+import { connectionSummary } from '../../hud/settings-rows';
 import { DEPTH, SETTINGS_PANEL } from '../layout';
 import { hexToNum, PALETTE } from '../palette';
 import { t } from '../strings';
@@ -26,6 +27,7 @@ export class SettingsPanel implements Panel {
   private masterValue!: Phaser.GameObjects.Text;
   private mutedButton!: TextButton;
   private rmButton!: TextButton;
+  private sessionsButton!: TextButton;
   private fileInput: HTMLInputElement | null = null;
   private importStatus!: Phaser.GameObjects.Text;
 
@@ -103,9 +105,18 @@ export class SettingsPanel implements Panel {
     });
     y += 22;
 
-    // ---- M2 / M4 reserves (grayed, PRD 01 US96/US112) ----
-    this.label(x, y, t('settings.sessions_section'), PALETTE.ui.textDim);
-    this.label(valueX - 60, y, t('settings.sessions_badge'), PALETTE.ui.textDim);
+    // ---- 会话面板 entry (M2 live, hud-sessions §9/§12-D6) + M4 reserve ----
+    // The row keeps its day-one position (GDD §10.7 设置页结构稳定) and is NOT
+    // gated by everConnected (§8.2/US40): the button carries a compact
+    // connection summary and opens the 会话面板 sub-page with the 10 HUD
+    // settings + connection/version/install-guidance block.
+    this.label(x, y, t('settings.sessions_section'));
+    this.sessionsButton = new TextButton(scene, valueX - 108, y - 2, '', {
+      width: 108,
+      onClick: () => this.host.openChild('sessionSettings'),
+    });
+    this.sessionsButton.setDepth(DEPTH.panel + 1);
+    this.track(this.sessionsButton);
     y += 16;
     this.label(x, y, t('settings.quests_section'), PALETTE.ui.textDim);
     this.label(valueX - 60, y, t('settings.quests_badge'), PALETTE.ui.textDim);
@@ -150,6 +161,9 @@ export class SettingsPanel implements Panel {
     this.masterValue.setText(String(s.audio.master));
     this.mutedButton.setLabel(s.audio.muted ? t('settings.on') : t('settings.off'));
     this.rmButton.setLabel(t(`settings.rm_${s.accessibility.reducedMotion}`));
+    // Compact connection summary on the 会话面板 entry (US40 — never gated).
+    const hud = this.host.sessionHud;
+    this.sessionsButton.setLabel(hud ? `${connectionSummary(hud.hudState())} ▸` : '不可用');
     this.redrawMasterBar();
   }
 
@@ -169,6 +183,13 @@ export class SettingsPanel implements Panel {
       return true;
     }
     return false;
+  }
+
+  /** Hidden while the 会话面板 sub-page covers this page (GDD §6.5 nesting). */
+  setCovered(covered: boolean): void {
+    for (const obj of this.objects) {
+      (obj as Partial<Phaser.GameObjects.Components.Visible>).setVisible?.(!covered);
+    }
   }
 
   destroy(): void {

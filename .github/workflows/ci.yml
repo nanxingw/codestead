@@ -1,9 +1,7 @@
-# Codestead CI — M1-phase matrix: ubuntu-latest x Node 22, single job (tech-stack §1 / §6 risk #12).
-#
-# Matrix expansion trigger (do NOT forget): as soon as M2 daemon code lands (PRD 03),
-# add macos-latest and Node 24 to the matrix — daemon's ps/tty/path behavior is
-# platform-sensitive and exactly the reliability surface we ship. This is scheduled
-# together with "M2 week 1: hook event recorder" (tech-stack §6 risk #12).
+# Codestead CI — M2-phase matrix: {ubuntu, macos} × Node {22, 24} (tech-stack §1 CI
+# row / §6 risk #12; PRD 03 US64): the daemon's ps/tty/cwd(lsof|procfs)/path behavior
+# is platform-sensitive and exactly the reliability surface we ship, so both
+# platforms are verified continuously from the moment daemon code landed.
 #
 # Pipeline order is part of the M0 acceptance contract (PRD 00, user story 33):
 # frozen-lockfile install -> typecheck -> lint + format check -> test -> build.
@@ -16,7 +14,12 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +29,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install (reproducible dependency tree)

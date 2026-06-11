@@ -8,6 +8,7 @@ import { resolveUiContext, type UiContext } from '../ui/context';
 import { FeedbackView } from '../ui/hud/feedback-view';
 import { Hotbar } from '../ui/hud/hotbar';
 import { NotificationsView } from '../ui/hud/notifications-view';
+import { SessionHud } from '../ui/hud/session-hud';
 import { TopRightPanel } from '../ui/hud/top-right-panel';
 import { NotificationsModel } from '../ui/notifications';
 import type { Panel, UiHost } from '../ui/panels/host';
@@ -17,6 +18,7 @@ import { DaySummaryPanel } from '../ui/panels/day-summary-panel';
 import { InventoryPanel } from '../ui/panels/inventory-panel';
 import { PauseMenuPanel } from '../ui/panels/pause-menu';
 import { ReadingPanel } from '../ui/panels/reading-panel';
+import { SessionSettingsPanel } from '../ui/panels/session-settings-panel';
 import { SettingsPanel } from '../ui/panels/settings-panel';
 import { ShippingBinPanel } from '../ui/panels/shipping-bin-panel';
 import { ShopPanel } from '../ui/panels/shop-panel';
@@ -71,6 +73,8 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
   private hotbar: Hotbar | null = null;
   private notificationsView: NotificationsView | null = null;
   private feedbackView: FeedbackView | null = null;
+  /** M2 session HUD (ruling A-9 rect (4,4)–(156,150)); independent of the sim. */
+  private sessionHud: SessionHud | null = null;
   private unsubscribeSim: (() => void) | null = null;
   private topOpenedAt = -Infinity;
   private host!: UiHost;
@@ -91,10 +95,22 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     }
     const ctx = this.ctx;
 
+    const reducedMotion = (): boolean => this.settingsStore.reducedMotionActive();
+    // M2 session HUD: lives in the reserved top-left rect; reads ONLY its own
+    // store (zero sim coupling — hud-sessions §13-5). The sound cue is the
+    // Kenney UI Audio soft click at 40% volume (hud-sessions §3.4; assets D5).
+    this.sessionHud = new SessionHud(this, {
+      playerScreenRect: () => this.playerScreenRect(),
+      reducedMotion,
+      playSound: () => this.ctx?.audio?.play(SFX.sessionChime, { volume: 0.4 }),
+    });
+
     this.host = {
       scene: this,
       ctx,
       settings: this.settingsStore,
+      // Settings page / day-summary surface of the session HUD (D6, US32/33/39/40).
+      sessionHud: this.sessionHud,
       state: () => ctx.sim.state,
       dispatch: (command) => this.dispatch(command),
       toast: (key, params) => this.toastText(t(key, params)),
@@ -104,8 +120,6 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       reducedMotion: () => this.settingsStore.reducedMotionActive(),
       playSfx: (key) => this.playSfx(key),
     };
-
-    const reducedMotion = (): boolean => this.settingsStore.reducedMotionActive();
     this.topRight = new TopRightPanel(this, reducedMotion);
     this.hotbar = new Hotbar(this, (slot) => this.dispatch({ type: 'selectSlot', slot }));
     this.notificationsView = new NotificationsView(this, this.notifications, reducedMotion);
@@ -147,6 +161,8 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       this.game.events.off(WORLD_EVENTS.daySummary, this.onWorldDaySummary);
       this.unsubscribeSim?.();
       this.feedbackView?.clear();
+      this.sessionHud?.destroy();
+      this.sessionHud = null;
       this.closeAll();
     });
   }
@@ -196,6 +212,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     this.hotbar?.update(state);
     this.notificationsView?.update(time);
     this.feedbackView?.update(); // flush AFTER hotbar.update so landings target fresh slots
+    this.sessionHud?.update(); // M2 session HUD (no-op while hidden, US23)
   }
 
   // ---- UiSceneApi (world-layer routing surface) ----
@@ -290,6 +307,9 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     }
     this.activeSources = new Set(next);
     this.notifications.setModalOpen(this.stack.depth() > 0); // §5.8 queue discipline
+    // Day-summary screen showing ⇒ session panel hides; its store keeps
+    // updating over WS (hud-sessions §4.6/§11-19 — HUD reflects reality).
+    this.sessionHud?.setSuppressed(this.panels.some((p) => p.id === 'daySummary'));
   }
 
   private buildPanel(id: UiPanelId, summary?: DaySummary, signId?: string): Panel {
@@ -304,6 +324,8 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
         return new PauseMenuPanel(this.host);
       case 'settings':
         return new SettingsPanel(this.host);
+      case 'sessionSettings': // 设置 → 会话面板 (M2, hud-sessions §9/§12-D6)
+        return new SessionSettingsPanel(this.host);
       case 'achievements':
         return new AchievementsPanel(this.host); // M1.5 成就 tab (PRD 02 US12)
       case 'keysHelp':
@@ -420,6 +442,25 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     return world?.cameras?.main ?? null;
   }
 
+  /**
+   * Player sprite screen rect for the session HUD's autoFade (hud-sessions
+   * §3.2). The camera follows the player sprite (WorldScene startFollow), so
+   * the follow target IS the player's smooth world position; null when the
+   * world is not running or Phaser's internal follow slot is unavailable —
+   * autoFade then simply never triggers (graceful degrade, flagged apiDrift:
+   * a public WorldScene accessor would be cleaner).
+   */
+  private playerScreenRect(): { x: number; y: number; width: number; height: number } | null {
+    const cam = this.worldCamera();
+    if (!cam) return null;
+    const follow = (cam as unknown as { _follow?: { x?: unknown; y?: unknown } })._follow;
+    if (!follow || typeof follow.x !== 'number' || typeof follow.y !== 'number') return null;
+    // Foot-center origin (0.5, 1), body ≈ 16×24 px (world/player.ts).
+    const sx = Math.round((follow.x - cam.worldView.x) * cam.zoom);
+    const sy = Math.round((follow.y - cam.worldView.y) * cam.zoom);
+    return { x: sx - 8, y: sy - 24, width: 16, height: 24 };
+  }
+
   // ---- input routing (keymap GDD §6.8) ----
 
   private onKeyDown(event: KeyboardEvent): void {
@@ -442,6 +483,11 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       case 'I':
         event.preventDefault();
         this.openPanel('inventory');
+        return;
+      case 'h':
+      case 'H':
+        // M2 session HUD display cycle: expanded → collapsed → hidden (GDD §6.8).
+        this.sessionHud?.cycleDisplayMode();
         return;
       default: {
         const digit = Number.parseInt(event.key, 10);

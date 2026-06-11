@@ -40,6 +40,15 @@
 - M5 前：Phaser 单 chunk 1.41MB（gzip 393KB）超 Vite 500KB 警告线 → manualChunks 分包评估。
 - M2 落地后：左上预留区 scrim 开洞的视觉突兀自然消失。
 
+## E. M2 交付后的遗留事项
+
+1. **daemon Origin 白名单缺 4173**：`vite preview` 默认端口被静默拒绝（M2~M4 期间需用 `--port 5173`，或把 4173 加入 DEV_ALLOWED_ORIGINS；M5 同源托管后消失）→ 建议 M5 前补文档或加白。
+2. **真实 hook fixture 待采集**（需用户本人执行）：在真实环境跑 `packages/daemon` 录制器 → scrub 脱敏 → 落 `test/fixtures`，即可把 reducer 回放测试的最后一个 `it.todo` 转正（fixtures/README 有手工流程）。
+3. **QUEST_LAUNCH_ARG_MARKER='codestead-quest' 待 M4 落实**：M4 headless spawner 的 argv 必须含该标记，否则 ps 双重过滤第二腿失效（M4 实现时核对，并回填 tech-stack §4.2/ai-quests）。
+4. **8×8 状态图标 spritesheet 未落地**：HUD 图标现用像素字体字形（!/✓/◐）渲染，视觉可用；正式图标随后续资产批次。
+5. **验收 §13-1/3/4 真机联调实测**（p95 ≤1s、断连 ≤5s、12 会话 ≤2ms/帧）：纯单测无法覆盖，建议真实使用时观察。
+6. **hud-sessions §2.1 显示名回退链含 tty 但 SessionInfo 无 tty 字段**：process-only 会话回退到 'ps-<pid>'，若要 tty 回退需先修订设计文档（owner）。
+
 ## D. M1 发布前置缺口（需真人执行，agent 不可代办）
 
 1. **红线 1 真人 playtest 未执行、未归档**（PRD 02 测试决策 12 / 实现决策 12；§0.5 红线 1）：需 ≥2 名未读任何文档、无农场游戏经验的测试者，无口头提示，记录 10 真实分钟内首次「种→收→卖」与 Lv2 达成情况及全部卡点；结论与改动记录归档至 `docs/playtests/m1-redline1-YYYYMMDD.md`（线下人工记录，无遥测）。失败时只允许动可调面（新手引导三件套文案/呈现、明日之诺、NEW 角标、toast 文案——已由 test/redline1-onboarding-copy.test.ts 钉死口径）后复测；数值/状态机改动必须先回 GDD 修订。**PRD 02 出厂判定 = 全部测试资产绿 + 红线 1~3 成立：此项不闭合不得宣布 M1 出厂。**

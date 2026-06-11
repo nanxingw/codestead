@@ -651,6 +651,155 @@ function hudStateIcon(state) {
   return outline(c);
 }
 
+// ---------------------------------------------------------------------------
+// M2 session-panel 8×8 icons (hud-sessions §3.1/§12-D5; colors per GDD A-8 +
+// §7.4 HUD tokens). Solid set + `_hollow` stroke variants for the
+// `source === 'process'` low-confidence modifier; shapes that are already
+// outlines (○ ? ⚠ ⌁) alias the same drawing for their hollow frame.
+// ---------------------------------------------------------------------------
+
+const HUD8_RING = [
+  '..XXXX..',
+  '.X....X.',
+  'X......X',
+  'X......X',
+  'X......X',
+  'X......X',
+  '.X....X.',
+  '..XXXX..',
+];
+
+const HUD8_TEMPLATES = {
+  blocked: [
+    '...XX...',
+    '...XX...',
+    '...XX...',
+    '...XX...',
+    '...XX...',
+    '........',
+    '...XX...',
+    '...XX...',
+  ],
+  blocked_hollow: [
+    '..XXXX..',
+    '..X..X..',
+    '..X..X..',
+    '..X..X..',
+    '..XXXX..',
+    '........',
+    '...XX...',
+    '...XX...',
+  ],
+  error: [
+    '...XX...',
+    '..X..X..',
+    '..X..X..',
+    '.X.XX.X.',
+    '.X.XX.X.',
+    'X......X',
+    'X..XX..X',
+    'XXXXXXXX',
+  ],
+  done: [
+    '........',
+    '......XX',
+    '.....XXX',
+    'XX..XXX.',
+    'XXXXXX..',
+    '.XXXX...',
+    '..XX....',
+    '........',
+  ],
+  done_hollow: [
+    '........',
+    '.......X',
+    '......X.',
+    'X....X..',
+    '.X..X...',
+    '..XX....',
+    '........',
+    '........',
+  ],
+  idle: HUD8_RING,
+  unknown: [
+    '..XXXX..',
+    '.XX..XX.',
+    '.....XX.',
+    '....XX..',
+    '...XX...',
+    '...XX...',
+    '........',
+    '...XX...',
+  ],
+  unknown_hollow: [
+    '..XXX...',
+    '.X...X..',
+    '.....X..',
+    '....X...',
+    '...X....',
+    '...X....',
+    '........',
+    '...X....',
+  ],
+  disconnected: [
+    '........',
+    '........',
+    '.X...X..',
+    'X.X.X.X.',
+    '...X...X',
+    '........',
+    '........',
+    '........',
+  ],
+};
+
+function hud8(template, color) {
+  return sprite(template, { X: color }, 8, 8);
+}
+
+/** ◐ spinner frame: ring + half disc; quarter 0..3 = left/top/right/bottom (◐◓◑◒). */
+function hud8WorkingFrame(quarter, color) {
+  const c = hud8(HUD8_RING, color);
+  const inside = (x, y) => {
+    const dx = x - 3.5;
+    const dy = y - 3.5;
+    return dx * dx + dy * dy <= 3.5 * 3.5;
+  };
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      if (!inside(x, y)) continue;
+      const half = quarter === 0 ? x < 4 : quarter === 1 ? y < 4 : quarter === 2 ? x >= 4 : y >= 4;
+      if (half) c.set(x, y, color);
+    }
+  }
+  return c;
+}
+
+/** Hollow spinner: ring + a 2×2 marker rotating W/N/E/S. */
+function hud8WorkingHollowFrame(quarter, color) {
+  const c = hud8(HUD8_RING, color);
+  const spots = [
+    [1, 3],
+    [3, 1],
+    [5, 3],
+    [3, 5],
+  ];
+  const [sx, sy] = spots[quarter];
+  for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) c.set(sx + x, sy + y, color);
+  return c;
+}
+
+/** Flat 8×8 9-slice for session-panel chrome: §3.2 tokens, square corners. */
+function hudPanelSlice() {
+  const c = new Canvas(8, 8);
+  c.fillRect(0, 0, 8, 8, PAL.hudPanelBg);
+  c.fillRect(0, 0, 8, 1, PAL.hudPanelBorder);
+  c.fillRect(0, 7, 8, 1, PAL.hudPanelBorder);
+  c.fillRect(0, 0, 1, 8, PAL.hudPanelBorder);
+  c.fillRect(7, 0, 1, 8, PAL.hudPanelBorder);
+  return c;
+}
+
 function buildUi() {
   const frames = new Map();
   frames.set('ui_panel', panel(24, PAL.uiPanel, PAL.woodLight));
@@ -660,6 +809,27 @@ function buildUi() {
   frames.set('ui_slot', panel(20, PAL.uiPanelLight, PAL.soilMid));
   for (const s of ['working', 'blocked', 'done', 'idle', 'unknown'])
     frames.set(`hud_state_${s}`, hudStateIcon(s));
+
+  // M2 session-panel set (game/src/AssetKeys.ts HUD8_FRAMES / HUD_PANEL_FRAME).
+  frames.set('hud_panel', hudPanelSlice());
+  const hud8Colors = {
+    blocked: PAL.amber,
+    error: PAL.redMid,
+    done: PAL.greenLight,
+    idle: PAL.uiTextDim,
+    unknown: PAL.hudUnknown,
+    disconnected: PAL.hudUnknown,
+  };
+  for (const [name, color] of Object.entries(hud8Colors)) {
+    const solid = HUD8_TEMPLATES[name];
+    const hollow = HUD8_TEMPLATES[`${name}_hollow`] ?? solid; // outline shapes alias
+    frames.set(`hud8_${name}`, hud8(solid, color));
+    frames.set(`hud8_${name}_hollow`, hud8(hollow, color));
+  }
+  for (let i = 0; i < 4; i++) {
+    frames.set(`hud8_working_${i}`, hud8WorkingFrame(i, PAL.waterLight));
+    frames.set(`hud8_working_${i}_hollow`, hud8WorkingHollowFrame(i, PAL.waterLight));
+  }
 
   // rain streak frames (two phases)
   for (const phase of [0, 1]) {

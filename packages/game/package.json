@@ -15,7 +15,8 @@
   "dependencies": {
     "@codestead/shared": "workspace:*",
     "idb-keyval": "^6.2.5",
-    "phaser": "3.90.0"
+    "phaser": "3.90.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "tsx": "^4.22.4",

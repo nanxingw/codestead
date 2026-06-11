@@ -122,6 +122,27 @@ export function hudStateFrame(state: 'working' | 'blocked' | 'done' | 'idle' | '
   return `hud_state_${state}`;
 }
 
+/**
+ * 8×8 session-panel icons (hud-sessions §3.1/§12-D5; ui atlas, self-drawn
+ * CC0): one frame per state, ⚠ error modifier, ⌁ disconnect bar glyph, 4-frame
+ * ◐ spinner. `_hollow` variants carry the `source === 'process'` low-confidence
+ * stroke style (US12); for shapes that are already outlines (○ ? ⚠ ⌁) the
+ * hollow frame aliases the same drawing.
+ */
+export const HUD8_FRAMES = {
+  blocked: 'hud8_blocked',
+  error: 'hud8_error',
+  done: 'hud8_done',
+  idle: 'hud8_idle',
+  unknown: 'hud8_unknown',
+  disconnected: 'hud8_disconnected',
+  working: ['hud8_working_0', 'hud8_working_1', 'hud8_working_2', 'hud8_working_3'],
+} as const;
+
+export function hud8Hollow(frame: string): string {
+  return `${frame}_hollow`;
+}
+
 export const FX_FRAMES = {
   rain0: 'fx_rain_0',
   rain1: 'fx_rain_1',
@@ -129,7 +150,8 @@ export const FX_FRAMES = {
   splash1: 'fx_splash_1',
 } as const;
 
-// ---- audio (GDD §11.5 M1 convergence: exactly these 8 SFX + master volume + muted) ----
+// ---- audio (GDD §11.5 M1 convergence: the 8 M1 SFX + master volume + muted;
+// M2 adds the session-HUD soft click — hud-sessions §3.4) ----
 
 /** Canonical SFX keys — the audio interface; 50ms same-key dedupe is the only M1 limiter. */
 export const SFX = {
@@ -141,6 +163,8 @@ export const SFX = {
   coins: 'coins',
   jingleLevelup: 'jingle_levelup',
   uiError: 'ui_error',
+  /** Session HUD →blocked/→done cue (Kenney UI Audio soft click; 40% volume, ≤200ms, §3.4). */
+  sessionChime: 'session_chime',
 } as const;
 export type SfxKey = (typeof SFX)[keyof typeof SFX];
 
@@ -154,4 +178,5 @@ export const AUDIO_PATHS: Readonly<Record<SfxKey, string>> = {
   coins: 'assets/audio/sfx/coins.ogg',
   jingle_levelup: 'assets/audio/jingles/jingle_levelup.ogg',
   ui_error: 'assets/audio/sfx/ui_error.ogg',
+  session_chime: 'assets/audio/sfx/session_chime.ogg',
 };

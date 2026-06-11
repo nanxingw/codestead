@@ -32,7 +32,14 @@ export const SessionInfoSchema = z.object({
   /** Truncated last prompt; null when unavailable. */
   subtitle: z.string().nullable(),
   cwd: z.string(),
-  state: SessionStateSchema,
+  /**
+   * Forward compatibility (hud-sessions §10.2, tech-stack §5 evolution rules):
+   * an unrecognized `state` value from a newer daemon must still parse — the HUD
+   * renders it as `unknown`. Encoded at the schema layer via `.catch('unknown')`
+   * so the contract test (PRD 03, testing decision 2) covers it.
+   * `SessionStateSchema` itself stays strict for daemon-internal use.
+   */
+  state: SessionStateSchema.catch('unknown'),
   /** ISO 8601 — when the session entered its current state. */
   since: z.iso.datetime({ offset: true }),
   /** ISO 8601 — time of the last signal observed for this session. */

@@ -65,6 +65,47 @@ export default tseslint.config(
       ],
     },
   },
+  // ---- Architecture boundary: hud/ is the pure session-HUD store (M2, PRD 03 US61;
+  // hud-sessions §13-5). Two laws, ESLint-enforced rather than oral discipline:
+  //   1. ZERO sim imports — “HUD 与经济零绑定” is an architecture fact: session state
+  //      never reads or writes farm state (acceptance §13-5 automated assertion);
+  //   2. ZERO Phaser — the store is headless-testable; rendering belongs to the
+  //      UIScene-side render shell, which only READS this store.
+  // NOTE: rules don't merge across configs, so this block repeats the idb-keyval ban.
+  {
+    files: ['packages/game/src/hud/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'phaser',
+              message:
+                'hud/** is the pure HUD store — Phaser stays in the render shell (hud-sessions §13-5, PRD 03).',
+            },
+            {
+              name: 'idb-keyval',
+              message:
+                'idb-keyval may only be imported inside packages/game/src/storage/** (game-design §10.1).',
+            },
+          ],
+          patterns: [
+            {
+              group: ['phaser/*'],
+              message:
+                'hud/** is the pure HUD store — Phaser stays in the render shell (hud-sessions §13-5, PRD 03).',
+            },
+            {
+              group: ['**/sim/**'],
+              message:
+                'HUD store has ZERO imports from sim — session state and the farm economy are never coupled (hud-sessions §13-5, PRD 03 US61).',
+            },
+          ],
+        },
+      ],
+    },
+  },
   // ---- Architecture boundary: sim/ is the headless simulation layer — zero Phaser imports
   // (tech-stack §1 / §6 risk #10). This is the project's most load-bearing test seam.
   // NOTE: rules don't merge across configs, so this block must repeat the idb-keyval ban.

@@ -1,7 +1,9 @@
 /**
- * Assembles the 8 M1 SFX (GDD §11.5 convergence) into assets/audio/.
+ * Assembles the 8 M1 SFX (GDD §11.5 convergence) + the M2 session-HUD chime
+ * (hud-sessions §3.4: Kenney UI Audio soft click, played at 40% volume by the
+ * client) into assets/audio/.
  *
- * 7 of 8 are copied verbatim from Kenney CC0 audio packs (see
+ * 8 of 9 are copied verbatim from Kenney CC0 audio packs (see
  * assets-src/recipes.json5 for pack download URLs); `water_pour` has no CC0
  * source in those packs, so it is synthesized with ffmpeg (filtered noise,
  * self-made, CC0) and flagged `placeholder` in assets/manifest.json.
@@ -27,6 +29,8 @@ export const SFX_SOURCES = {
   coins: 'rpg-audio/Audio/handleCoins.ogg',
   jingle_levelup: 'music-jingles/Audio/Pizzicato jingles/jingles_PIZZI07.ogg',
   ui_error: 'interface-sounds/Audio/error_004.ogg',
+  // M2 session-HUD soft click (hud-sessions §3.4; ≤200ms — click1 is ~94ms).
+  session_chime: 'ui-audio/Audio/click1.ogg',
 };
 
 const sfxDir = join(gameRoot, 'assets/audio/sfx');

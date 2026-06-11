@@ -6,17 +6,24 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/cli-main.ts start",
     "build": "tsc -b tsconfig.build.json",
     "start": "node dist/index.js",
+    "record": "tsx src/cli-main.ts record",
+    "scrub": "tsx src/install/scrub-main.ts",
+    "install:dry-run": "tsx src/cli-main.ts install --dry-run",
+    "uninstall:dry-run": "tsx src/cli-main.ts uninstall --dry-run",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@codestead/shared": "workspace:*"
+    "@codestead/shared": "workspace:*",
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
+    "@types/ws": "^8.18.0",
     "tsx": "^4.22.4"
   }
 }

@@ -33,15 +33,21 @@ export class SfxPlayer implements UiAudio {
 
   constructor(private readonly scene: Phaser.Scene) {}
 
-  play(key: SfxKey, opts?: { detune?: number }): void {
+  play(key: SfxKey, opts?: { detune?: number; volume?: number }): void {
     const now = this.scene.time.now;
     const last = this.lastPlayedAt.get(key) ?? Number.NEGATIVE_INFINITY;
     if (now - last < SFX_DEDUPE_MS) return;
     this.lastPlayedAt.set(key, now);
     if (!this.scene.cache.audio.exists(key)) return; // missing asset: silent (preload warned)
     try {
-      if (opts?.detune !== undefined) this.scene.sound.play(key, { detune: opts.detune });
-      else this.scene.sound.play(key);
+      const config: { detune?: number; volume?: number } = {};
+      if (opts?.detune !== undefined) config.detune = opts.detune;
+      if (opts?.volume !== undefined) config.volume = opts.volume;
+      if (config.detune !== undefined || config.volume !== undefined) {
+        this.scene.sound.play(key, config);
+      } else {
+        this.scene.sound.play(key);
+      }
     } catch (error) {
       console.warn(`[audio] failed to play ${key}:`, error);
     }

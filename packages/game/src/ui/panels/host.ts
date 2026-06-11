@@ -6,15 +6,31 @@
 import type Phaser from 'phaser';
 
 import type { SfxKey } from '../../AssetKeys';
+import type { HudSettings } from '../../hud/settings';
+import type { HudState } from '../../hud/types';
 import type { SimCommand, SimEvent, WorldState } from '../../sim/types';
 import type { UiContext } from '../context';
 import type { SettingsStore } from '../settings-store';
 import type { UiPanelId } from '../ui-stack';
 
+/**
+ * Narrow surface of the session HUD exposed to panels (hud-sessions §12-D6):
+ * the settings page reads/writes HUD settings (persisted to codestead.hud.v1,
+ * NEVER the farm save) and reads connection state; the day-summary panel reads
+ * stateCounts for the §4.6 会话一行. Implemented by ui/hud/session-hud.ts.
+ */
+export interface SessionHudHandle {
+  settings(): Readonly<HudSettings>;
+  updateSettings(patch: Partial<HudSettings>): void;
+  hudState(): Readonly<HudState>;
+}
+
 export interface UiHost {
   readonly scene: Phaser.Scene;
   readonly ctx: UiContext;
   readonly settings: SettingsStore;
+  /** Absent only in the passive M0-compatible shell (and in panel tests). */
+  readonly sessionHud?: SessionHudHandle;
   state(): Readonly<WorldState>;
   dispatch(command: SimCommand): SimEvent[];
   /** Blocked-reason toast (string key from strings.ts, GDD §6.7 toast discipline). */
