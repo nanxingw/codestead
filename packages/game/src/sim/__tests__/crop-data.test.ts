@@ -133,6 +133,27 @@ describe('economy admission I1~I7 (GDD §4.4; CI 固化)', () => {
     }
   });
 
+  // I6 second half (backlog A-11): gpd also rises strictly with tier, per season.
+  // gpd口径 follows §4.4: singles (sell − seed)/growthDays; regrows the H_ref form
+  // (sell − seed/4)/regrowDays. Cranberry is excluded under the SAME pending-owner
+  // ruling as I2 above (its printed prices violate the admission table; asserting
+  // them would freeze the conflict).
+  it('I6: within each season, gpd rises strictly with tier (A-11)', () => {
+    const gpdOf = (c: (typeof CROPS)[number]): number =>
+      c.regrowDays !== undefined
+        ? (c.sellPrice - c.seedPrice / 4) / c.regrowDays
+        : (c.sellPrice - c.seedPrice) / c.growthDays;
+    for (const season of ['spring', 'summer', 'fall'] as const) {
+      const bySeason = CROPS.filter((c) => c.seasons.includes(season) && c.id !== 'cranberry');
+      for (const tier of [1, 2] as const) {
+        const cur = bySeason.filter((c) => c.tier === tier).map(gpdOf);
+        const next = bySeason.filter((c) => c.tier === tier + 1).map(gpdOf);
+        if (cur.length === 0 || next.length === 0) continue;
+        expect(Math.max(...cur), `${season} T${tier}→T${tier + 1}`).toBeLessThan(Math.min(...next));
+      }
+    }
+  });
+
   it.each(singles.map((c) => [c.id, c] as const))(
     'I7 %s: single-harvest gpd inside tier band T1[3.5,4.5] T2[6.0,7.5] T3[9.5,11.5]',
     (_id, c) => {

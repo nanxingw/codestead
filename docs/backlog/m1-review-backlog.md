@@ -32,8 +32,15 @@
 8. **water_pour SFX 无 CC0 来源**（freesound 需 OAuth）：现为 ffmpeg 合成占位，需定替换渠道。
 9. **§6.9 slots「zod 修复」vs shared schema refine 严格拒绝**：此类档现进 RECOVERY 而非静默修复，两处文档矛盾。
 10. 其余实现期已记录的小口径问题见 M1 工作流输出（鼠标超距光标、信件「非模态」语义、快捷栏切换音、主菜单归属、日结算 400ms 常量收编、夜结算玩家位置、雨天色值确认、池塘 67 tile、建筑预留地 zone 命名、carpenter_bench 位置、intro_letter 已读入档口径、宽容加载测试归属、playTimeRealSeconds 口径、导入成功后运行时序、meta NEW 角标簿记不入档、time.season 存/不存）。
+11. **US26 右键拆堆的 sim 通道形态（待 owner 追认）**：PRD 02 自身两条款冲突——§6.7 右键「拿 ⌈n/2⌉ / 放 1」需要 `moveItem`/`discardItem` 无法表达的拆堆通道 vs InventoryApi 零变更红线。M1.5 评审修复批次已按评审意见落地：**新增 SimCommand `splitItem{from,to,count}`**（sim/inventory.ts `splitAt`；InventoryApi 六方法与存档 schema 均未动，红线字面成立），右键语义全量实装并入 fuzz（test/inventory-drag-fuzz.test.ts 两条 §6.7 规约测试已解除 skip）。已知有界偏差：背包全满时右键拿半堆退化为拒绝+提示（虚拟手持需一个空格作锚位；divergence 注记见 test/helpers/drag-store-contract.ts）。待 owner 追认通道形态：保留 `splitItem` / 改 `moveItem` 加 `count` 字段 / 否决则回退并顺延 M3。
+12. **成就开启模式勤奋 bot Lv5 首达日出带（待 owner 校准裁决）**：PRD 02 Further Notes 点名的风险实测成立——achievements ON 的脚本 R 28 天推演 Lv5 首达 **D21**（部分天气种子 D22；OFF 模式各种子均 D24），低于 §5.8 验收带 [22,27] 下沿 1 天。按校准纪律（PRD 02：出带回 GDD 修订、不得实现侧私调），现状以 `it.fails` 钉死在 src/sim/__tests__/pacing-achievements-on.test.ts（另有 [21,27] 漂移护栏为常规断言）；待 owner 裁决：缩 #1~#14 的 305 XP 预算 / 放宽带宽 / 接受 D21 并改 §5.8——裁决落地后该 `it.fails` 自动转红提醒移除标记。
 
 ## C. 后续里程碑提醒
 
 - M5 前：Phaser 单 chunk 1.41MB（gzip 393KB）超 Vite 500KB 警告线 → manualChunks 分包评估。
 - M2 落地后：左上预留区 scrim 开洞的视觉突兀自然消失。
+
+## D. M1 发布前置缺口（需真人执行，agent 不可代办）
+
+1. **红线 1 真人 playtest 未执行、未归档**（PRD 02 测试决策 12 / 实现决策 12；§0.5 红线 1）：需 ≥2 名未读任何文档、无农场游戏经验的测试者，无口头提示，记录 10 真实分钟内首次「种→收→卖」与 Lv2 达成情况及全部卡点；结论与改动记录归档至 `docs/playtests/m1-redline1-YYYYMMDD.md`（线下人工记录，无遥测）。失败时只允许动可调面（新手引导三件套文案/呈现、明日之诺、NEW 角标、toast 文案——已由 test/redline1-onboarding-copy.test.ts 钉死口径）后复测；数值/状态机改动必须先回 GDD 修订。**PRD 02 出厂判定 = 全部测试资产绿 + 红线 1~3 成立：此项不闭合不得宣布 M1 出厂。**
+2. **US22 升级视觉三件套的人工验收走查记录**（PRD 02 测试决策 11）：三件已实装于 src/world/upgrade-fx.ts（水弧随档位加宽、铜/金档挥动残影、范围浇水湿色扩散；残影与扩散在 reducedMotion 下按约跳过），渲染层不写单测，「肉眼可辨」需人工走查并留记录（可并入 playtest 当日清单：含范围框跟随朝向、成就 toast 位置/时长/不抢焦点、成就页全键盘、提示队列溢出合并文案）。

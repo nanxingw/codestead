@@ -4,14 +4,17 @@
  * The ONLY auto-opened modal in the game: pushed when the sim emits DayEnded. Stays up
  * indefinitely ("放下点" — no timer), closes on any key/click after a 400ms input grace
  * window. Shows harvest, settlement income, gold balance (=== the autosaved balance),
- * XP + level-ups, the ETA line (never a countdown) and ≤3 "明日之诺" entries (never
- * empty — falls back to the shop teaser).
+ * XP + level-ups, the day's newly unlocked achievements (GDD §5.8 progress block
+ * 「新成就」 — also the landing spot of the toast-queue overflow line 「详见日结算」),
+ * the ETA line (never a countdown) and ≤3 "明日之诺" entries (never empty — falls
+ * back to the shop teaser).
  */
 import type Phaser from 'phaser';
 
 import { getCropDef } from '../../sim/data/crops';
 import { XP_THRESHOLDS } from '../../sim/data/constants';
 import { levelForXp } from '../../sim/leveling';
+import { tilledCapForLevel } from '../../sim/tiles';
 import type { DaySummary, TomorrowItem } from '../../sim/types';
 import { formatGold } from '../format';
 import { DEPTH, SUMMARY_PANEL } from '../layout';
@@ -77,7 +80,23 @@ export class DaySummaryPanel implements Panel {
     // ---- progress ----
     const progressLines = [t('summary.xp', { xp: summary.xpGained })];
     for (const level of summary.levelUps) {
-      progressLines.push(t('summary.level_up', { level }));
+      // Cap-raising levels spell out the numbers on the summary screen too
+      // (GDD §1.4 「升级横幅与日结算屏明示数字」, backlog A-14).
+      const prevCap = safe(
+        `cap:${level - 1}`,
+        () => tilledCapForLevel(level - 1),
+        null as number | null,
+      );
+      const cap = safe(`cap:${level}`, () => tilledCapForLevel(level), null as number | null);
+      progressLines.push(
+        prevCap !== null && cap !== null && cap > prevCap
+          ? t('summary.level_up_cap', { level, prev: prevCap, cap })
+          : t('summary.level_up', { level }),
+      );
+    }
+    // 新成就 (GDD §5.8; PRD 02 US11): the settlement sweep's unlocks ride the summary.
+    for (const id of summary.achievementsUnlocked) {
+      progressLines.push(t('summary.achievement', { name: t(`achv.${id}.name`) }));
     }
     progressLines.push(this.etaLine());
     y = this.section(y, 'XP', progressLines);
@@ -163,6 +182,12 @@ export class DaySummaryPanel implements Panel {
           ? t('summary.tomorrow_crop_ready', { crop: name })
           : t('summary.tomorrow_crop_in', { crop: name, days: item.inDays });
       }
+      case 'zoneUnlocked': // 「明早西田开放 · 可打理田地 12→18」 (A-14)
+        return t('summary.tomorrow_zone', {
+          zone: t(`zone.${item.zoneId}`),
+          prev: item.prevCap,
+          cap: item.newCap,
+        });
       default:
         return t('summary.tomorrow_fallback'); // construction/seasonEnd are M3
     }

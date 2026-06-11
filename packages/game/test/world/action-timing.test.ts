@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ACTION_TIMING } from '../../src/sim/data/constants';
-import { ActionBuffer, HoldRepeater } from '../../src/world/action-timing';
+import { ActionBuffer, HoldCharge, HoldRepeater } from '../../src/world/action-timing';
 
 describe('HoldRepeater (GDD §1.6 / ruling A-16)', () => {
   it('press fires one immediate attempt', () => {
@@ -29,6 +29,56 @@ describe('HoldRepeater (GDD §1.6 / ruling A-16)', () => {
     r.release();
     expect(r.update(10_000)).toBe(0);
     expect(r.isHeld).toBe(false);
+  });
+});
+
+describe('HoldCharge (ruling A-16: copper/gold hoe charge, M1.5)', () => {
+  const T = ACTION_TIMING.HOLD_THRESHOLD_MS;
+
+  it('press fires nothing; release before 400ms is a single-tile tap (§3.5 轻按)', () => {
+    const c = new HoldCharge();
+    c.press(0);
+    expect(c.isHeld).toBe(true);
+    expect(c.release(T - 1)).toBe('tap');
+    expect(c.isHeld).toBe(false);
+  });
+
+  it('release at/after the 400ms threshold is the previewed batch', () => {
+    const c = new HoldCharge();
+    c.press(100);
+    expect(c.release(100 + T)).toBe('batch');
+  });
+
+  it('isCharging turns true exactly at the threshold (drives the range preview)', () => {
+    const c = new HoldCharge();
+    c.press(0);
+    expect(c.isCharging(T - 1)).toBe(false);
+    expect(c.isCharging(T)).toBe(true);
+  });
+
+  it('cancel (22:00 / modal, GDD §3.9 #4) drops the charge — nothing fires', () => {
+    const c = new HoldCharge();
+    c.press(0);
+    c.cancel();
+    expect(c.isHeld).toBe(false);
+    expect(c.isCharging(10_000)).toBe(false);
+    expect(c.release(10_000)).toBe('none');
+  });
+
+  it('release is idempotent: a second release reports none', () => {
+    const c = new HoldCharge();
+    c.press(0);
+    expect(c.release(T)).toBe('batch');
+    expect(c.release(T + 1)).toBe('none');
+  });
+
+  it('re-press after release re-arms from the new press time', () => {
+    const c = new HoldCharge();
+    c.press(0);
+    c.release(50);
+    c.press(1_000);
+    expect(c.isCharging(1_000 + T - 1)).toBe(false);
+    expect(c.release(1_000 + T - 1)).toBe('tap');
   });
 });
 

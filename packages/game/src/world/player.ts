@@ -16,6 +16,7 @@ import { ACTION_TIMING, MOVEMENT } from '../sim/data/constants';
 import type { ActionVerb, Facing, TilePos } from '../sim/types';
 import { actorFrame, PLAYER_ACTOR, TEXTURES } from '../AssetKeys';
 import type { Dir } from './input-stack';
+import { moveSliced } from './movement';
 import { FALLBACK_PLAYER_TEXTURE, hasFrame } from './textures';
 
 const TILE = 16;
@@ -139,11 +140,18 @@ export class PlayerController {
     }
     this.facing = dir;
     const speed = run ? MOVEMENT.RUN_SPEED_PX_PER_S : MOVEMENT.WALK_SPEED_PX_PER_S;
-    const dist = (speed * deltaMs) / 1000;
-    if (dir === 'left') this.moveAxis(-dist, 0);
-    else if (dir === 'right') this.moveAxis(dist, 0);
-    else if (dir === 'up') this.moveAxis(0, -dist);
-    else this.moveAxis(0, dist);
+    // Pure displacement core (world/movement.ts): clamped delta + ≤8px slices, so
+    // large deltas can never tunnel through a wall (backlog A-10; headless-tested).
+    const moved = moveSliced(
+      { x: this.x, y: this.y },
+      dir,
+      speed,
+      deltaMs,
+      (x, y) => this.bodyCollides(x, y),
+      MOVEMENT.CORNER_FORGIVENESS_PX,
+    );
+    this.x = moved.x;
+    this.y = moved.y;
 
     if (this.hasArt && this.scene.anims.exists(`player_walk_${dir}`)) {
       this.sprite.anims.play(`player_walk_${dir}`, true);
@@ -188,41 +196,5 @@ export class PlayerController {
       }
     }
     return false;
-  }
-
-  private moveAxis(dx: number, dy: number): void {
-    const nx = this.x + dx;
-    const ny = this.y + dy;
-    if (!this.bodyCollides(nx, ny)) {
-      this.x = nx;
-      this.y = ny;
-      return;
-    }
-    // Corner forgiveness (GDD §1.6): when the blocking overlap on the perpendicular
-    // axis is ≤3px, slide 1px per frame toward the clear side.
-    const f = MOVEMENT.CORNER_FORGIVENESS_PX;
-    if (dx !== 0) {
-      for (let nudge = 1; nudge <= f; nudge++) {
-        if (!this.bodyCollides(nx, this.y - nudge)) {
-          this.y -= 1;
-          return;
-        }
-        if (!this.bodyCollides(nx, this.y + nudge)) {
-          this.y += 1;
-          return;
-        }
-      }
-    } else if (dy !== 0) {
-      for (let nudge = 1; nudge <= f; nudge++) {
-        if (!this.bodyCollides(this.x - nudge, ny)) {
-          this.x -= 1;
-          return;
-        }
-        if (!this.bodyCollides(this.x + nudge, ny)) {
-          this.x += 1;
-          return;
-        }
-      }
-    }
   }
 }

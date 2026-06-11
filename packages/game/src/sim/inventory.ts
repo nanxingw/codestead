@@ -134,6 +134,39 @@ export function move(inv: InventoryState, from: number, to: number): InventorySt
   return next;
 }
 
+/**
+ * Partial-stack move (M1.5, GDD §6.7 right-button ops 拿半堆/放 1; PRD 02 US26):
+ * move exactly `count` units from `from` onto an EMPTY or SAME-ID slot `to`.
+ * Different-id targets and out-of-range inputs are no-ops (the drag store never
+ * emits them — defensive); the moved amount clamps to min(count, src.count,
+ * headroom) so a malformed command can never destroy or duplicate units.
+ * Additive beside move(): the InventoryApi six methods stay untouched (PRD 02
+ * red line; channel ratification pending, m1-review-backlog.md B-11).
+ */
+export function splitAt(
+  inv: InventoryState,
+  from: number,
+  to: number,
+  count: number,
+): InventoryState {
+  const next = structuredClone(inv);
+  if (!Number.isInteger(count) || count <= 0 || from === to) return next;
+  if (from < 0 || to < 0 || from >= next.slots.length || to >= next.slots.length) return next;
+  const src = next.slots[from];
+  if (src === null) return next;
+  const dst = next.slots[to];
+  if (dst !== null && dst.itemId !== src.itemId) return next;
+  const stackMax = ITEMS_BY_ID.get(src.itemId)?.stackMax ?? 99;
+  const headroom = dst === null ? stackMax : stackMax - dst.count;
+  const take = Math.min(count, src.count, headroom);
+  if (take <= 0) return next;
+  if (dst === null) next.slots[to] = { itemId: src.itemId, count: take };
+  else dst.count += take;
+  src.count -= take;
+  if (src.count === 0) next.slots[from] = null;
+  return next;
+}
+
 /** Hotbar selection 0..8 (GDD §6.2); out-of-range input is clamped. */
 export function select(inv: InventoryState, slot: number): InventoryState {
   const next = structuredClone(inv);

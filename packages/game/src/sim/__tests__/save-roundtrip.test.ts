@@ -124,3 +124,26 @@ describe('tolerant hydration (GDD §10.9)', () => {
     }
   });
 });
+
+describe('porch-letter one-time semantics (US86 / backlog A-4)', () => {
+  it('markIntroLetterRead sets the counter once, idempotently, and round-trips', () => {
+    const sim = newGameSim('letter-probe', TEST_MAP);
+    expect(sim.state.progress.counters.introLetterRead).toBeUndefined();
+    sim.markIntroLetterRead();
+    expect(sim.state.progress.counters.introLetterRead).toBe(1);
+    sim.markIntroLetterRead(); // repeat reads are no-ops (one-time semantics)
+    sim.markIntroLetterRead();
+    expect(sim.state.progress.counters.introLetterRead).toBe(1);
+
+    // Zero schema change (PRD 02 red line): it is a plain counter in SaveDoc v1.
+    const doc = sim.serialize();
+    expect(doc.progress.counters['introLetterRead']).toBe(1);
+    expect(SaveDocSchema.safeParse(wrap(doc)).success).toBe(true);
+
+    // Restore keeps the read state — the porch highlight never comes back.
+    const restored = createSim(doc, TEST_MAP);
+    expect(restored.state.progress.counters.introLetterRead).toBe(1);
+    restored.markIntroLetterRead(); // still idempotent after a reload
+    expect(restored.state.progress.counters.introLetterRead).toBe(1);
+  });
+});

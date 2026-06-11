@@ -37,7 +37,7 @@ import { morningReliefCheck, settleShipping } from './economy.js';
 import { applyRainWetting, growCrops, isOldVine, resetWatered } from './farming.js';
 import { bumpCounterInPlace } from './leveling.js';
 import { refreshPickups } from './pickups.js';
-import { pendingZoneUnlocks } from './tiles.js';
+import { pendingZoneUnlocks, tilledCapForLevel } from './tiles.js';
 import { rollWeather, timeView } from './time.js';
 import type { DaySummary, MapMeta, SimEvent, TomorrowItem, WorldState } from './types.js';
 
@@ -88,13 +88,20 @@ export function runNight(
   bumpCounterInPlace(cur, 'sleepCount', 1);
 
   // ---- new-morning effects (see header note; not numbered §2.5 phases) ----
+  const unlockedTonight: { zoneId: string; farmLevel: number }[] = [];
   for (const zoneId of pendingZoneUnlocks(cur, map)) {
     cur.farm.unlockedZones.push(zoneId); // unlock only ever REMOVES collision (§1.4)
+    const farmLevel = map.unlockGroups.find((g) => g.zoneId === zoneId)?.farmLevel ?? 1;
+    unlockedTonight.push({ zoneId, farmLevel });
     events.push({ type: 'zoneUnlocked', zoneId });
   }
   const relief = morningReliefCheck(cur);
   cur = relief.state;
   events.push(...relief.events);
+  // NEW-badge pruning (GDD §4.3; backlog A-13 — current semantics pinned as default):
+  // the badge lives for the UNLOCK DAY itself (level-ups happen during the day; the
+  // badge dies at this settlement). If the owner rules "first game day AFTER unlock",
+  // change BOTH this condition and catalog()'s `=== today` check together.
   for (const [entryId, day] of Object.entries(cur.economy.newEntriesSeenDay)) {
     if (day < cur.time.day) delete cur.economy.newEntriesSeenDay[entryId];
   }
@@ -122,7 +129,10 @@ export function runNight(
     goldBalance: cur.economy.gold, // === the gold persisted by autosave (#11 ≥ #1)
     xpGained,
     levelUps,
-    tomorrow: buildTomorrow(cur),
+    // Filled by the facade's post-settlement achievement sweep (sim.ts runNightFlow);
+    // runNight itself never judges achievements (pure §2.5 pipeline).
+    achievementsUnlocked: [],
+    tomorrow: buildTomorrow(cur, unlockedTonight),
     weatherNext: cur.time.weatherToday, // the shifted weatherToday (#9 after #7)
   };
   cur.progress.xpHistory = [...cur.progress.xpHistory, xpGained].slice(-3); // ≤3-day ETA window
@@ -144,9 +154,23 @@ function aggregateHarvests(state: WorldState): { cropId: CropId; count: number }
 /**
  * "Tomorrow" promises, ≤3, ascending by inDays, NEVER empty (GDD §2.5): when nothing
  * else qualifies, the fixed shop teaser ("商店有新鲜种子等你") fills the list.
+ * A zone unlocked by this settlement leads the list (GDD §1.4 「日结算屏明示数字」,
+ * backlog A-14): 「明早西田开放 · 可打理田地 12→18」 — caps derived from the zone's
+ * farmLevel bracket, so the line is correct even on multi-level jumps.
  */
-function buildTomorrow(state: WorldState): TomorrowItem[] {
+function buildTomorrow(
+  state: WorldState,
+  unlockedTonight: { zoneId: string; farmLevel: number }[],
+): TomorrowItem[] {
   const items: TomorrowItem[] = [];
+  for (const unlock of unlockedTonight) {
+    items.push({
+      kind: 'zoneUnlocked',
+      zoneId: unlock.zoneId,
+      prevCap: tilledCapForLevel(unlock.farmLevel - 1),
+      newCap: tilledCapForLevel(unlock.farmLevel),
+    });
+  }
   if (state.time.weatherToday === 'rain') items.push({ kind: 'rain' });
 
   const readiness = new Map<CropId, number>();

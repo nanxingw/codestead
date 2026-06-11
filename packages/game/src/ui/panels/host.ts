@@ -37,4 +37,10 @@ export interface Panel {
   /** Handle a key while this panel is top-of-stack; return true when consumed. */
   handleKey(event: KeyboardEvent): boolean;
   destroy(): void;
+  /**
+   * Hide/show while a child panel covers this one (pauseMenu → settings/keysHelp/
+   * achievements, §6.5). All panels share the same DEPTH tokens, so a covered parent
+   * must be hidden outright or its depth-(panel+1) widgets bleed through the child.
+   */
+  setCovered?(covered: boolean): void;
 }

@@ -23,14 +23,17 @@ import { ACTION_TIMING, INVENTORY, TIME } from '../sim/data/constants';
 import { cropItemId, type ItemId } from '../sim/data/items';
 import { isOldVine } from '../sim/farming';
 import { canAdd } from '../sim/inventory';
+import { effectiveLevel } from '../sim/leveling';
 import type { SimApi } from '../sim/sim';
 import { newGameSim } from '../sim/sim';
+import { nextCapLevel, tillBlockedByCap } from '../sim/tiles';
 import type { ActionQuery, DaySummary, Facing, MapMeta, SimEvent, TilePos } from '../sim/types';
 import { SaveManager } from '../storage/save-manager';
 import { UI_CONTEXT_REGISTRY_KEY, type UiContext } from '../ui/context';
+import { SettingsStore } from '../ui/settings-store';
 import { t } from '../ui/strings';
 import { facingToward, resolveTargetTile, MOUSE_TAKEOVER_PX, type AimMode } from '../world/aim';
-import { ActionBuffer, HoldRepeater } from '../world/action-timing';
+import { ActionBuffer, HoldCharge, HoldRepeater } from '../world/action-timing';
 import { AmbienceView } from '../world/ambience-view';
 import { SfxPlayer, attachWorldSfx } from '../world/audio';
 import { CropsView } from '../world/crops-view';
@@ -42,12 +45,15 @@ import { buildMapMeta, FALLBACK_MAP_META, type TiledMapData } from '../world/map
 import { PALETTE } from '../world/palette';
 import { PickupsView } from '../world/pickups-view';
 import { PlayerController } from '../world/player';
+import { RangePreview } from '../world/range-preview';
 import {
   FALLBACK_GROUND_TEXTURE,
   PARTICLE_TEXTURE,
   ensureGeneratedTextures,
 } from '../world/textures';
 import { TimeDriver } from '../world/time-driver';
+import { expandToolRange, toolTierFor } from '../world/tool-range';
+import { UpgradeFx } from '../world/upgrade-fx';
 import type { UiSceneApi } from './UIScene';
 
 const TILE = 16;
@@ -76,7 +82,14 @@ export class WorldScene extends Phaser.Scene {
 
   private readonly inputStack = new InputStack();
   private readonly repeater = new HoldRepeater();
+  /** Copper/gold hoe hold-to-charge (A-16); the repeater drives everything else. */
+  private readonly charge = new HoldCharge();
   private readonly buffer = new ActionBuffer();
+  private rangePreview!: RangePreview;
+  /** Tool-upgrade visual trio (§3.5 / PRD 02 US22): water arc / afterimage / wet spread. */
+  private upgradeFx!: UpgradeFx;
+  /** Last seen ToolTiers — upgrade toast edge detection (no ToolUpgraded SimEvent). */
+  private lastToolTiers: { hoe: number; wateringCan: number } | null = null;
   private aimMode: AimMode = 'keyboard';
   private mouseAccum = 0;
   private lastPointer = { x: 0, y: 0 };
@@ -102,6 +115,10 @@ export class WorldScene extends Phaser.Scene {
   private queryBroken = false;
   private unsubSim: (() => void) | null = null;
   private readonly windowCleanups: (() => void)[] = [];
+  /** Zone unlock fx deferred from the night settlement to the morning fade-in (A-7). */
+  private pendingUnlockFx: string[] = [];
+  /** Porch-letter highlight while unread (US86 / backlog A-4). */
+  private letterGlow: Phaser.GameObjects.Rectangle | null = null;
 
   /** True once UIScene was launched with a live UiContext — it then owns the
    *  Esc/Tab/I/1-9/wheel keys and the day-summary dismissal (apiDrift contract). */
@@ -136,9 +153,36 @@ export class WorldScene extends Phaser.Scene {
         this.applyZoneUnlock(zoneId, false);
       }
     }
-    this.cameras.main.fadeIn(TIME.NIGHT_FADE_IN_MS, 0, 0, 0);
+    this.buildLetterGlow();
+    this.cameras.main.fadeIn(this.fadeMs(TIME.NIGHT_FADE_IN_MS), 0, 0, 0);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
+  }
+
+  /** reducedMotion (§10.8): scene fades 0ms. Fresh read so a settings change applies
+   *  without a scene restart (the store itself is owned by the UI layer). */
+  private fadeMs(normalMs: number): number {
+    return this.reducedMotionActive() ? 0 : normalMs;
+  }
+
+  private reducedMotionActive(): boolean {
+    return new SettingsStore().reducedMotionActive();
+  }
+
+  /**
+   * Static gold glow over the porch letter while unread (US86 / backlog A-4) —
+   * visibility tracks the introLetterRead counter per frame. Static by design:
+   * no pulsing, so it is reducedMotion-neutral and photosensitivity-safe (§11.7).
+   */
+  private buildLetterGlow(): void {
+    const letter = this.mapMeta.interactables.find((i) => i.kind === 'letter');
+    if (!letter || letter.tiles.length === 0 || !this.sim) return;
+    const tile = letter.tiles[0];
+    this.letterGlow = this.add
+      .rectangle(tile.x * TILE + TILE / 2, tile.y * TILE + TILE / 2, TILE, TILE)
+      .setFillStyle(PALETTE.goldLight, 0.3)
+      .setStrokeStyle(1, PALETTE.goldLight, 0.8)
+      .setDepth(40); // above buildings (30), below entities (100+)
   }
 
   // ---- construction -------------------------------------------------------
@@ -152,7 +196,9 @@ export class WorldScene extends Phaser.Scene {
   private resetTransientState(): void {
     this.inputStack.clear();
     this.repeater.release();
+    this.charge.cancel();
     this.buffer.clear();
+    this.lastToolTiers = null;
     this.aimMode = 'keyboard';
     this.mouseAccum = 0;
     this.dirKeys = null;
@@ -169,6 +215,8 @@ export class WorldScene extends Phaser.Scene {
     this.saves = null;
     this.sfx = null;
     this.lastNightHandledDay = 0;
+    this.pendingUnlockFx = [];
+    this.letterGlow = null; // destroyed with the scene's display list on shutdown
   }
 
   private buildMap(): void {
@@ -251,7 +299,9 @@ export class WorldScene extends Phaser.Scene {
       this.sim = pre;
     } else {
       try {
-        this.sim = newGameSim(DEV_SEED, this.mapMeta);
+        // Game entry point ⇒ achievements ON (B-3: only deduction/replay entry
+        // points run the default rewards-off mode).
+        this.sim = newGameSim(DEV_SEED, this.mapMeta, { achievements: true });
       } catch (err) {
         console.warn('[world] sim unavailable (movement-only mode):', err);
         this.sim = null;
@@ -261,6 +311,8 @@ export class WorldScene extends Phaser.Scene {
     this.registry.set(REGISTRY_KEYS.mapMeta, this.mapMeta);
     if (this.sim) {
       this.unsubSim = this.sim.on((ev) => this.onSimEvent(ev));
+      // Seed from the loaded save so restoring a copper/gold save never toasts.
+      this.lastToolTiers = { ...this.sim.state.tools };
     }
   }
 
@@ -268,8 +320,10 @@ export class WorldScene extends Phaser.Scene {
     this.farmland = new FarmlandView(this);
     this.crops = new CropsView(this);
     this.pickupsView = new PickupsView(this, this.mapMeta.pickupSpots);
-    this.ambience = new AmbienceView(this);
+    this.ambience = new AmbienceView(this, () => this.reducedMotionActive());
     this.cursor = new TileCursor(this);
+    this.rangePreview = new RangePreview(this);
+    this.upgradeFx = new UpgradeFx(this, () => this.reducedMotionActive());
   }
 
   private buildPlayerAndCamera(): void {
@@ -299,7 +353,7 @@ export class WorldScene extends Phaser.Scene {
     this.driver = new TimeDriver({
       step: () => {
         if (!this.sim) return 'halt';
-        this.handleSimEvents(this.sim.advanceMinutes(1));
+        this.sim.advanceMinutes(1); // events arrive via the on() subscription (A-7)
         return this.nightPending ? 'halt' : 'continue';
       },
       isAtDayEnd: () =>
@@ -504,11 +558,10 @@ export class WorldScene extends Phaser.Scene {
         return;
       }
       this.player.facing = facingToward(player, hover, this.player.facing);
-      this.repeater.press(this.time.now);
-      this.tryAttempt();
+      this.pressInteract();
     });
     this.input.on(Phaser.Input.Events.POINTER_UP, () => {
-      if (!this.anyInteractHeld()) this.repeater.release();
+      this.releaseInteractIfIdle();
     });
     this.input.on(
       Phaser.Input.Events.POINTER_WHEEL,
@@ -518,7 +571,7 @@ export class WorldScene extends Phaser.Scene {
         if (this.uiLive) return; // UIScene owns hotbar cycling (single dispatch)
         const n = INVENTORY.HOTBAR_SIZE;
         const next = (this.sim.state.inventory.selected + (dy > 0 ? 1 : -1) + n) % n;
-        this.handleSimEvents(this.sim.dispatch({ type: 'selectSlot', slot: next }));
+        this.sim.dispatch({ type: 'selectSlot', slot: next });
       },
     );
   }
@@ -538,6 +591,9 @@ export class WorldScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const blocked = this.isModalBlocked();
+    // A modal / the night flow interrupts a hoe charge: preview cancelled, nothing
+    // executes, zero penalty (GDD §3.9 #4) — must precede the release polling below.
+    if (blocked || this.nightActive) this.charge.cancel();
     this.pollKeyboard(blocked);
 
     if (this.sim) this.driver.update(delta);
@@ -559,6 +615,13 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.updateCursor(blocked);
+    this.updateRangeOverlays(blocked);
+    this.checkToolUpgrades();
+    if (this.letterGlow && this.sim) {
+      this.letterGlow.setVisible(
+        !this.nightActive && (this.sim.state.progress.counters.introLetterRead ?? 0) === 0,
+      );
+    }
     if (this.sim) {
       this.ambience.update(this.sim.state.time.minuteOfDay, this.sim.state.time.weatherToday);
     }
@@ -591,14 +654,11 @@ export class WorldScene extends Phaser.Scene {
         if (this.nightActive) {
           if (!this.uiLive) this.resumeDay();
         } else if (!blocked) {
-          this.repeater.press(this.time.now);
-          this.tryAttempt();
+          this.pressInteract();
         }
       }
     }
-    if (!this.anyInteractHeld() && !this.input.activePointer.leftButtonDown()) {
-      this.repeater.release();
-    }
+    this.releaseInteractIfIdle();
 
     // With a live UI context, UIScene globally owns Esc/Tab/I/1-9 (and the wheel) —
     // re-dispatching here would double-fire commands (UI apiDrift contract). The
@@ -609,7 +669,7 @@ export class WorldScene extends Phaser.Scene {
         if (this.nightActive) {
           if (!this.uiLive) this.resumeDay();
         } else if (this.sim && !blocked && !this.uiLive) {
-          this.handleSimEvents(this.sim.dispatch({ type: 'selectSlot', slot: i }));
+          this.sim.dispatch({ type: 'selectSlot', slot: i });
         }
       }
     });
@@ -701,7 +761,15 @@ export class WorldScene extends Phaser.Scene {
     if (this.interactableByTile.has(key)) return true;
     const spotId = this.pickupSpotByTile.get(key);
     if (spotId !== undefined && this.isPickupAvailable(spotId)) return true;
-    return this.safeQuery(tile, itemId).valid;
+    if (this.safeQuery(tile, itemId).valid) return true;
+    // Copper/gold can: a tap waters the whole tier range, so the target counts as
+    // actionable when ANY tile in its range is waterable (wet center, dry extension).
+    return (
+      itemId === 'watering_can' &&
+      this.sim !== null &&
+      this.sim.state.tools.wateringCan >= 2 &&
+      this.waterRangeTiles(tile).length > 0
+    );
   }
 
   private isPickupAvailable(spotId: string): boolean {
@@ -752,6 +820,174 @@ export class WorldScene extends Phaser.Scene {
     this.cursor.set(valid ? 'valid' : 'none', target.tile);
   }
 
+  // ---- copper/gold tool ranges (GDD §3.5 / A-16 / §6.4; M1.5) -------------
+
+  /**
+   * One interact press edge (keyboard E / mouse left — identical routing, §1.7).
+   * A copper/gold HOE press arms the hold-to-charge instead of firing (A-16: release
+   * <400ms = single-tile tap, ≥400ms = previewed batch — 防误锄, the cap counter is
+   * monotonic); every other press keeps M1-core fire-now + hold-to-repeat semantics.
+   */
+  private pressInteract(): void {
+    if (this.chargeEligible()) {
+      this.charge.press(this.time.now);
+      return;
+    }
+    this.repeater.press(this.time.now);
+    this.tryAttempt();
+  }
+
+  /**
+   * The hoe charge only arms when the press would otherwise be a hoe swing: fixed
+   * interactables, pickups and the mature-crop harvest keep their immediate press
+   * (§3.5 priority table — this also preserves the hold-E harvest sweep of §1.9).
+   */
+  private chargeEligible(): boolean {
+    if (!this.sim) return false;
+    if (this.selectedItemId() !== 'hoe' || this.sim.state.tools.hoe < 2) return false;
+    const target = this.resolveTarget().tile;
+    if (target === null) return false;
+    const key = `${target.x},${target.y}`;
+    if (this.interactableByTile.has(key)) return false;
+    const spotId = this.pickupSpotByTile.get(key);
+    if (spotId !== undefined && this.isPickupAvailable(spotId)) return false;
+    const q = this.safeQuery(target, 'hoe');
+    return !(q.valid && q.verb === 'harvest');
+  }
+
+  /** Release edge for both devices; idempotent (also polled once per frame). */
+  private releaseInteractIfIdle(): void {
+    if (this.anyInteractHeld()) return;
+    this.repeater.release();
+    if (this.isModalBlocked() || this.nightActive) {
+      // Interrupted charge: preview cancelled, nothing executes (GDD §3.9 #4).
+      this.charge.cancel();
+      return;
+    }
+    const release = this.charge.release(this.time.now);
+    if (release === 'tap') this.tryAttempt();
+    else if (release === 'batch') this.executeHoeBatch();
+  }
+
+  /**
+   * Hoe charge released past 400ms: batch-till the previewed range (A-16). Only the
+   * legal subset is dispatched (§3.9 #3) and every tile re-runs the full sim T1
+   * validation on dispatch — the tilled cap is re-checked per tile, so filling the
+   * cap mid-batch rejects the remaining tiles (§1.4 cap discipline).
+   */
+  private executeHoeBatch(): void {
+    if (!this.sim || this.player.isActing) return;
+    const target = this.resolveTarget().tile;
+    if (target === null) return;
+    const legal = this.hoeRangeTiles(target);
+    if (legal.length === 0) {
+      // Whole range refused — when the cap is the reason, say so (US36 / A-2).
+      if (tillBlockedByCap(this.sim.state, this.mapMeta, target)) this.toastTilledCap();
+      return;
+    }
+    const facing = facingToward(this.player.currentTile, target, this.player.facing);
+    this.player.beginActing('till', facing);
+    this.upgradeFx.swingAfterimage(this.player.sprite); // batch ⇒ copper/gold (US22)
+    this.time.delayedCall(ACTION_TIMING.EFFECT_AT_MS, () => {
+      if (!this.sim) return;
+      for (const bt of legal) {
+        this.sim.dispatch({ type: 'interact', tile: bt, itemId: 'hoe' });
+      }
+    });
+  }
+
+  /** Legal hoe batch subset: till/clear targets only — never a range auto-harvest. */
+  private hoeRangeTiles(target: TilePos): TilePos[] {
+    if (!this.sim) return [];
+    const facing = facingToward(this.player.currentTile, target, this.player.facing);
+    const tiles = expandToolRange(target, facing, this.sim.state.tools.hoe, this.mapMeta);
+    return tiles.filter((rt) => {
+      const q = this.safeQuery(rt, 'hoe');
+      return q.valid && q.verb === 'till';
+    });
+  }
+
+  /** Cap-reached hint (GDD §1.4 「农场 Lv N 后可打理更多田地」; the notifications
+   *  model dedupes the hold-repeat spam). Silent at the top bracket (no next level). */
+  private toastTilledCap(): void {
+    if (!this.sim) return;
+    const level = nextCapLevel(effectiveLevel(this.sim.state.progress.xp));
+    if (level !== null) this.uiToast(t('toast.tilled_cap', { level }));
+  }
+
+  /** Waterable tiles in the can's tier range around `target` (any tier; §3.5). */
+  private waterRangeTiles(target: TilePos): TilePos[] {
+    if (!this.sim) return [];
+    const facing = facingToward(this.player.currentTile, target, this.player.facing);
+    const tiles = expandToolRange(target, facing, this.sim.state.tools.wateringCan, this.mapMeta);
+    return tiles.filter((rt) => {
+      const q = this.safeQuery(rt, 'watering_can');
+      return q.valid && q.verb === 'water';
+    });
+  }
+
+  /**
+   * Copper/gold range visuals: the always-on facing range frame while such a tool is
+   * selected (§6.4) and the hoe charge ghost preview past 400ms (A-16). Pure render —
+   * tiles and validity come from the same expansion the execution paths use.
+   */
+  private updateRangeOverlays(blocked: boolean): void {
+    if (!this.sim || blocked || this.nightActive) {
+      this.rangePreview.hide();
+      return;
+    }
+    const itemId = this.selectedItemId();
+    // Hotbar switch mid-charge: drop the charge silently (防误锄 — nothing fires).
+    if (this.charge.isHeld && itemId !== 'hoe') this.charge.cancel();
+    const tier = toolTierFor(itemId, this.sim.state.tools);
+    const target = this.resolveTarget().tile;
+    if (tier < 2 || target === null) {
+      this.rangePreview.hide();
+      return;
+    }
+    const facing = facingToward(this.player.currentTile, target, this.player.facing);
+    const tiles = expandToolRange(target, facing, tier, this.mapMeta);
+    if (itemId === 'hoe' && this.charge.isCharging(this.time.now)) {
+      this.rangePreview.showCharge(tiles, this.hoeRangeTiles(target));
+    } else {
+      this.rangePreview.showFrame(tiles);
+    }
+  }
+
+  /**
+   * Upgrade feedback (§3.5 / PRD 02 US22): no ToolUpgraded SimEvent exists, so the
+   * scene edge-detects ToolTiers changes (recorded as apiDrift). The toast names the
+   * new range, confirming the 350g/2,650g purchase before the first swing; the hotbar
+   * icon swaps to the tier frame on its own (SlotView reads ToolTiers). The in-play
+   * visual trio — tier-wide water arc, copper/gold swing afterimage, wet-tint spread —
+   * lives in world/upgrade-fx.ts and fires on the action paths (US22 三件套).
+   */
+  private checkToolUpgrades(): void {
+    if (!this.sim || !this.lastToolTiers) return;
+    const tools = this.sim.state.tools;
+    if (
+      tools.hoe === this.lastToolTiers.hoe &&
+      tools.wateringCan === this.lastToolTiers.wateringCan
+    ) {
+      return;
+    }
+    if (tools.hoe > this.lastToolTiers.hoe) {
+      this.uiToast(
+        t(tools.hoe >= 3 ? 'toast.tool_upgraded_hoe_gold' : 'toast.tool_upgraded_hoe_copper'),
+      );
+    }
+    if (tools.wateringCan > this.lastToolTiers.wateringCan) {
+      this.uiToast(
+        t(
+          tools.wateringCan >= 3
+            ? 'toast.tool_upgraded_can_gold'
+            : 'toast.tool_upgraded_can_copper',
+        ),
+      );
+    }
+    this.lastToolTiers = { hoe: tools.hoe, wateringCan: tools.wateringCan };
+  }
+
   /**
    * One interaction attempt against the current target tile. Priority (GDD §3.5):
    * fixed interactable > pickup > farming verb via sim. Keyboard E and mouse click
@@ -776,7 +1012,7 @@ export class WorldScene extends Phaser.Scene {
 
     const spotId = this.pickupSpotByTile.get(key);
     if (spotId !== undefined && this.sim && this.isPickupAvailable(spotId)) {
-      this.handleSimEvents(this.sim.dispatch({ type: 'pickup', spotId }));
+      this.sim.dispatch({ type: 'pickup', spotId });
       this.pickupsView.sync(this.sim.state.pickups);
       return;
     }
@@ -784,8 +1020,7 @@ export class WorldScene extends Phaser.Scene {
     const itemId = this.selectedItemId(); // null = bare-hand harvest (§3.5 空手 row)
     if (!this.sim) return;
     const q = this.safeQuery(tile, itemId);
-    if (!q.valid) return; // invalid target: skip, hold beat keeps running (§1.6)
-    if (q.verb === 'harvest' && this.harvestBlockedByFullPack(tile)) {
+    if (q.valid && q.verb === 'harvest' && this.harvestBlockedByFullPack(tile)) {
       // US43: full backpack blocks the whole pick — single-reason toast, no swing
       // (NotificationsModel dedupes the repeat-hold spam; SfxPlayer dedupes the SFX).
       this.uiToast(t('toast.inventory_full'));
@@ -793,13 +1028,47 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
+    // Watering can, every tier (§3.5/A-16): one swing waters the whole tier range —
+    // wet/non-tilled tiles no-op out of the legal subset, never resetting the hold
+    // beat (§1.10 #8). The center-tile mature-crop harvest keeps priority above.
+    // Tilled cap reached (GDD §1.4, US36 / backlog A-2): the one invalid-till case
+    // with a spoken reason — the HUD counter flashes once on its own edge detection.
+    if (itemId === 'hoe' && !q.valid && tillBlockedByCap(this.sim.state, this.mapMeta, tile)) {
+      this.toastTilledCap();
+      return;
+    }
+
+    if (itemId === 'watering_can' && (!q.valid || q.verb === 'water')) {
+      const wet = this.waterRangeTiles(tile);
+      if (wet.length === 0) return; // nothing waterable in range: skip, beat continues
+      const facing = facingToward(this.player.currentTile, tile, this.player.facing);
+      const tier = this.sim.state.tools.wateringCan;
+      this.player.beginActing('water', facing);
+      if (tier >= 2) this.upgradeFx.swingAfterimage(this.player.sprite); // US22 残影
+      this.time.delayedCall(ACTION_TIMING.EFFECT_AT_MS, () => {
+        if (!this.sim) return;
+        for (const wt of wet) {
+          this.sim.dispatch({ type: 'interact', tile: wt, itemId });
+        }
+        // US22 visual pair, at the moment the water lands (§3.5 升级视觉反馈):
+        // the arc is as wide as the tier range; a range pour floods the wet tint
+        // outward from the action center in one short wave.
+        this.upgradeFx.waterArc(wet, tier);
+        this.upgradeFx.wetSpread(wet, tile);
+      });
+      return;
+    }
+    if (!q.valid) return; // invalid target: skip, hold beat keeps running (§1.6)
+
     const facing = facingToward(this.player.currentTile, tile, this.player.facing);
     this.player.beginActing(q.verb, facing);
+    // Copper/gold single swings carry the upgrade echo too (first-swing feedback, US22).
+    if (toolTierFor(itemId, this.sim.state.tools) >= 2) {
+      this.upgradeFx.swingAfterimage(this.player.sprite);
+    }
     // Effect lands 120ms into the swing (ruling A-16).
     this.time.delayedCall(ACTION_TIMING.EFFECT_AT_MS, () => {
-      if (this.sim) {
-        this.handleSimEvents(this.sim.dispatch({ type: 'interact', tile, itemId }));
-      }
+      this.sim?.dispatch({ type: 'interact', tile, itemId });
     });
   }
 
@@ -819,7 +1088,8 @@ export class WorldScene extends Phaser.Scene {
   /**
    * Once-per-night side effects on DayEnded (NightUpdate #11, GDD §10.4 trigger A):
    * pin the §1.3 wake-at-spawn position into the sim, then write the night save.
-   * Guarded by day stamp — the same event arrives via dispatch return AND on().
+   * The day stamp stays as a cheap idempotence guard even though events now arrive
+   * on a single channel (backlog A-7).
    */
   private handleNightSettlement(): void {
     if (!this.sim) return;
@@ -833,11 +1103,11 @@ export class WorldScene extends Phaser.Scene {
 
   // ---- sim events & night flow -------------------------------------------
 
-  private handleSimEvents(events: SimEvent[]): void {
-    for (const ev of events) this.onSimEvent(ev);
-  }
-
-  /** Idempotent by design: dispatch() return values AND on() subscription both land here. */
+  /**
+   * SINGLE event channel (backlog A-7): the on() subscription is the only path into
+   * this handler — dispatch()/advanceMinutes() return values are never re-processed,
+   * so every SimEvent lands here exactly once.
+   */
   private onSimEvent(ev: SimEvent): void {
     if (!this.sim) return;
     switch (ev.type) {
@@ -865,7 +1135,11 @@ export class WorldScene extends Phaser.Scene {
         this.handleNightSettlement();
         break;
       case 'zoneUnlocked':
-        this.applyZoneUnlock(ev.zoneId, true);
+        // Collision opens immediately; the unlock sparkle is deferred to the morning
+        // fade-in (zoneUnlocked is emitted mid-night-settlement, when the screen is
+        // fading to black — backlog A-7 second half).
+        this.applyZoneUnlock(ev.zoneId, false);
+        if (!this.pendingUnlockFx.includes(ev.zoneId)) this.pendingUnlockFx.push(ev.zoneId);
         break;
       default:
         break; // gold/xp/level/weather events are UI & audio concerns
@@ -889,7 +1163,7 @@ export class WorldScene extends Phaser.Scene {
   private performSleep(): void {
     if (!this.sim || this.nightActive || this.nightPending) return;
     // Manual sleep (door) is the SAME settlement as 22:00 (ruling A-20).
-    this.handleSimEvents(this.sim.dispatch({ type: 'sleep' }));
+    this.sim.dispatch({ type: 'sleep' });
     if (this.nightPending) this.beginNight();
   }
 
@@ -900,10 +1174,12 @@ export class WorldScene extends Phaser.Scene {
     this.driver.discardAccumulator(); // GDD §2.8
     this.inputStack.clear();
     this.repeater.release();
+    this.charge.cancel(); // 22:00 interrupts the hoe charge: cancelled, no batch (§3.9 #4)
     this.buffer.clear();
     this.cursor.set('hidden', null);
+    this.rangePreview.hide();
     this.summaryShownAt = Number.POSITIVE_INFINITY;
-    this.cameras.main.fadeOut(TIME.NIGHT_FADE_OUT_MS, 0, 0, 0);
+    this.cameras.main.fadeOut(this.fadeMs(TIME.NIGHT_FADE_OUT_MS), 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.summaryShownAt = this.time.now;
       if (this.pendingSummary) {
@@ -923,8 +1199,15 @@ export class WorldScene extends Phaser.Scene {
       this.player.setTilePosition({ x: p.tileX, y: p.tileY }, p.facing); // wake at spawn
       this.refreshAllFromSim();
     }
-    this.cameras.main.fadeIn(TIME.NIGHT_FADE_IN_MS, 0, 0, 0);
+    this.cameras.main.fadeIn(this.fadeMs(TIME.NIGHT_FADE_IN_MS), 0, 0, 0);
     this.driver.remove('day_summary');
+    // Deferred unlock sparkle: played once, after daybreak, over the visible field
+    // (backlog A-7; queue is deduped so the morning replay is idempotent).
+    for (const zoneId of this.pendingUnlockFx) {
+      const group = this.mapMeta.unlockGroups.find((g) => g.zoneId === zoneId);
+      if (group && group.rects.length > 0) this.playUnlockSparkle(group.rects[0]);
+    }
+    this.pendingUnlockFx = [];
   }
 
   // ---- zone unlock --------------------------------------------------------

@@ -207,6 +207,9 @@ export const FALLBACK_MAP_META: MapMeta = {
     },
     { id: 'shop_stall', kind: 'shop', tiles: rectTiles({ x: 48, y: 19, w: 4, h: 3 }) },
     { id: 'bulletin_board', kind: 'bulletin_board', tiles: [{ x: 54, y: 19 }] },
+    // Readable signs (US5 / backlog A-3); positions mirror farm.tmj.
+    { id: 'signpost_junction', kind: 'sign', tiles: [{ x: 32, y: 20 }] },
+    { id: 'gate_sign', kind: 'sign', tiles: rectTiles({ x: 30, y: 46, w: 4, h: 2 }) },
     { id: 'intro_letter', kind: 'letter', tiles: [{ x: 28, y: 10 }] },
   ],
   // Ids follow the farm.tmj pickup naming (pickup_<kind>_<n>); 6 wood + 4 stone along

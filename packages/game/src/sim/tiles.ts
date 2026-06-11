@@ -83,6 +83,39 @@ export function canTill(state: WorldState, map: MapMeta, pos: TilePos): boolean 
 }
 
 /**
+ * Would this till be legal if not for the global cap? Drives the cap-reached toast
+ * (GDD §1.4 「农场 Lv N 后可打理更多田地」, US36 / backlog A-2): the hint must fire
+ * ONLY when the cap is the single blocking reason — never on fenced zones, occupied
+ * tiles or non-tillable ground.
+ */
+export function tillBlockedByCap(state: WorldState, map: MapMeta, pos: TilePos): boolean {
+  if (canTill(state, map, pos)) return false;
+  if (getTile(state, pos) !== null) return false;
+  if (!map.tillable.some((r) => rectContains(r, pos))) return false;
+  for (const group of map.unlockGroups) {
+    if (
+      group.rects.some((r) => rectContains(r, pos)) &&
+      !state.farm.unlockedZones.includes(group.zoneId)
+    ) {
+      return false;
+    }
+  }
+  return tilledCount(state) >= tilledCapForLevel(effectiveLevel(state.progress.xp));
+}
+
+/**
+ * The next farm level at which the tilled cap grows (GDD §1.4 brackets) — the「Lv N」
+ * in the cap-reached hint. null when already at the top bracket.
+ */
+export function nextCapLevel(effectiveLvl: number): number | null {
+  const current = tilledCapForLevel(effectiveLvl);
+  for (const bracket of TILLED_CAP_BY_LEVEL) {
+    if (bracket.level > effectiveLvl && bracket.cap > current) return bracket.level;
+  }
+  return null;
+}
+
+/**
  * Zones whose unlock is due at the next 6:00 (level-up evening announces, NEXT morning
  * unlocks; GDD §1.4). Unlocking only REMOVES collision — flood-fill reachable area is
  * monotonically non-decreasing (asserted in tests, PRD 01 US10). Applied by runNight

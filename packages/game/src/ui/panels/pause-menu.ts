@@ -1,7 +1,7 @@
 /**
- * pause-menu.ts — the Esc menu (GDD §6.5/§6.7): 继续 / 保存（「已保存 ✓」1s）/ 设置 /
- * 键位说明（M1 固定键位）/ 回主菜单（自动保存后清栈）. Opening contributes the 'menu'
- * pause source via the UI stack.
+ * pause-menu.ts — the Esc menu (GDD §6.5/§6.7): 继续 / 保存（「已保存 ✓」1s）/ 成就
+ * （M1.5 简版成就页, PRD 02 US12）/ 设置 / 键位说明（M1 固定键位）/ 回主菜单
+ * （自动保存后清栈）. Opening contributes the 'menu' pause source via the UI stack.
  */
 import type Phaser from 'phaser';
 
@@ -49,6 +49,7 @@ export class PauseMenuPanel implements Panel {
       () => void this.manualSave(),
       host.ctx.saveTransfer === undefined,
     );
+    addButton(t('menu.achievements'), () => host.openChild('achievements')); // M1.5 成就 tab
     addButton(t('menu.settings'), () => host.openChild('settings'));
     addButton(t('menu.keys'), () => host.openChild('keysHelp'));
     addButton(
@@ -66,6 +67,13 @@ export class PauseMenuPanel implements Panel {
 
   refresh(): void {
     // Static menu — nothing derived from sim state.
+  }
+
+  /** Hidden while a child tab (成就/设置/键位说明) covers the menu (§6.5). */
+  setCovered(covered: boolean): void {
+    for (const obj of this.objects) {
+      (obj as Partial<Phaser.GameObjects.Components.Visible>).setVisible?.(!covered);
+    }
   }
 
   handleKey(event: KeyboardEvent): boolean {

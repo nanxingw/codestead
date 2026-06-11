@@ -105,6 +105,29 @@ describe('phase-order observables (GDD §2.5 — order is a contract)', () => {
     }
   });
 
+  it('#1 zero-loss: a known but unpriceable bin line survives settlement (§4.8, A-8)', () => {
+    // A hand-edited import can smuggle a tool (no sellPrice) into the bin; the
+    // settlement must never silently destroy it — the line stays for withdrawal.
+    const sim = createSim(
+      makeSave({
+        world: {
+          farmTiles: {},
+          shippingBin: [stack('crop_radish_quick', 3), stack('hoe', 1)],
+        },
+      }),
+      TEST_MAP,
+    );
+    const summary = sim.sleep();
+    expect(summary.goldEarned).toBe(3 * 18); // priced line settled normally
+    expect(sim.state.economy.gold).toBe(100 + 3 * 18);
+    expect(sim.state.economy.shippingBin).toEqual([stack('hoe', 1)]); // kept, not destroyed
+    expect(sim.state.progress.counters.sellCount).toBe(3); // tool never counted as sold
+    // …and the next morning it is withdrawable back into the backpack:
+    sim.dispatch({ type: 'withdrawFromBin', index: 0, count: 1 });
+    expect(sim.state.economy.shippingBin).toEqual([]);
+    expect(sim.state.inventory.slots.filter((s) => s?.itemId === 'hoe')).toHaveLength(2);
+  });
+
   it('a zone earned by a mid-day level-up unlocks at the NEXT 6:00 (§1.4)', () => {
     // Restore derives unlockedZones from the effective level (SaveDoc has no zone
     // field), so the next-morning rule is observable only via an in-day level-up:
@@ -132,12 +155,22 @@ describe('phase-order observables (GDD §2.5 — order is a contract)', () => {
     sim.dispatch({ type: 'interact', tile: A, itemId: 'seed_radish_quick' }); // → Lv3
     expect(sim.state.progress.xp).toBe(xpForLevel(3));
     expect(sim.state.farm.unlockedZones).not.toContain('field_b'); // announced, not yet open
-    sim.sleep();
+    const summary = sim.sleep();
     expect(sim.state.farm.unlockedZones).toContain('field_b'); // 次日 6:00 解锁
+    // A-14: the settlement screen announces the unlock with explicit cap numbers
+    // (GDD §1.4 「日结算屏明示数字」) as the LEADING tomorrow line: 西田 12→18.
+    expect(summary.tomorrow[0]).toEqual({
+      kind: 'zoneUnlocked',
+      zoneId: 'field_b',
+      prevCap: 12,
+      newCap: 18,
+    });
     // unlocking only ever ADDS walkable zones — monotone non-decreasing (US10)
     const count = sim.state.farm.unlockedZones.length;
-    sim.sleep();
+    const next = sim.sleep();
     expect(sim.state.farm.unlockedZones.length).toBeGreaterThanOrEqual(count);
+    // …and the announcement is one-shot: no unlock tonight, no repeat line.
+    expect(next.tomorrow.some((t) => t.kind === 'zoneUnlocked')).toBe(false);
   });
 });
 

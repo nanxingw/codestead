@@ -22,6 +22,7 @@
  */
 import type { RestorableSaveDoc, SaveQuests } from '@codestead/shared';
 
+import { checkAchievements } from './achievements.js';
 import { ECONOMY, INVENTORY, TIME } from './data/constants.js';
 import { CROPS_BY_ID } from './data/crops.js';
 import type { CropId } from './data/crops.js';
@@ -37,8 +38,8 @@ import {
 } from './economy.js';
 import type { ShopEntryView } from './economy.js';
 import { applyAction, isOldVine, queryAction } from './farming.js';
-import { discardAt, move, select } from './inventory.js';
-import { effectiveLevel } from './leveling.js';
+import { discardAt, move, select, splitAt } from './inventory.js';
+import { bumpCounterInPlace, effectiveLevel } from './leveling.js';
 import { runNight } from './night-update.js';
 import { pickup, refreshPickups } from './pickups.js';
 import { getTile, tilledCapForLevel, tilledCount } from './tiles.js';
@@ -100,11 +101,52 @@ export interface SimApi {
 
   /** Push the render-side player tile/facing into the sim before saving (GDD §1.6). */
   syncPlayer(player: PlayerState): void;
+
+  /**
+   * One-time porch-letter semantics (US86 / backlog A-4): sets the
+   * `introLetterRead` counter to 1 on the first read (idempotent — repeat reads
+   * are no-ops, keeping replays byte-stable). Counter-based, zero schema change.
+   */
+  markIntroLetterRead(): void;
 }
 
-function makeSim(initial: WorldState, quests: SaveQuests, map: MapMeta): SimApi {
+/**
+ * Sim run-mode options (M1.5, PRD 02).
+ *
+ * `achievements` — the achievement engine switch (GDD §4.6 / §5.4 / ruling B-3):
+ * OFF by default so every deduction/replay entry point (script R, script B, red-line 1,
+ * determinism replays) stays byte-identical to the M1-core baseline — achievement
+ * gold/XP can never leak into the economy acceptance bandwidths. Game entry points
+ * (boot/menu/dev-fallback) opt in explicitly; that opt-in IS the "成就开启" mode and
+ * the default IS the "成就奖励关闭" deduction mode required by §4.6.
+ */
+export interface SimOptions {
+  achievements?: boolean;
+}
+
+function makeSim(
+  initial: WorldState,
+  quests: SaveQuests,
+  map: MapMeta,
+  options: SimOptions = {},
+): SimApi {
   let state = initial;
+  const achievementsOn = options.achievements === true;
   const listeners = new Set<(event: SimEvent) => void>();
+
+  /**
+   * Achievement sweep (M1.5): runs after every command and after each advanceMinutes
+   * batch — the only paths that move counters/tools — which subsumes the GDD §5.6
+   * trigger points (after bumpCounter / after tool upgrades). Also retro-unlocks
+   * imported old saves on their first tick (PRD 02 US10/US16). No-unlock sweeps keep
+   * the same state reference (cheap predicate scan, no clone).
+   */
+  function sweepAchievements(): SimEvent[] {
+    if (!achievementsOn) return [];
+    const result = checkAchievements(state);
+    state = result.state;
+    return result.events;
+  }
 
   function emit(events: SimEvent[]): void {
     for (const event of events) {
@@ -117,12 +159,26 @@ function makeSim(initial: WorldState, quests: SaveQuests, map: MapMeta): SimApi 
     const weatherBefore = state.time.weatherToday;
     const result = runNight(state, map);
     state = result.state;
-    const events: SimEvent[] = [...result.events, { type: 'DayEnded', summary: result.summary }];
+    // Achievement sweep BEFORE the summary snapshot: settlement counters (sellCount /
+    // goldEarned / sleepCount / rainDaysSeen) unlock exactly here, so (a) the new
+    // unlocks ride the summary's progress block (GDD §5.8 「新成就」, PRD 02 US11)
+    // and (b) instant achievement gold is in the wallet before goldBalance is pinned —
+    // goldBalance MUST equal the gold the DayEnded-triggered night autosave persists
+    // (GDD §2.5 contract). No-op in the default rewards-off deduction mode (B-3).
+    const unlocks = sweepAchievements();
+    const summary: DaySummary = {
+      ...result.summary,
+      goldBalance: state.economy.gold,
+      achievementsUnlocked: unlocks.flatMap((e) =>
+        e.type === 'AchievementUnlocked' ? [e.id] : [],
+      ),
+    };
+    const events: SimEvent[] = [...result.events, ...unlocks, { type: 'DayEnded', summary }];
     if (state.time.weatherToday !== weatherBefore) {
       events.push({ type: 'WeatherChanged', weather: state.time.weatherToday });
     }
     events.push({ type: 'DayStarted', day: state.time.day, weather: state.time.weatherToday });
-    return { summary: result.summary, events };
+    return { summary, events };
   }
 
   function interactToFarmAction(tile: TilePos, itemId: ItemId | null): FarmAction | null {
@@ -165,6 +221,13 @@ function makeSim(initial: WorldState, quests: SaveQuests, map: MapMeta): SimApi 
       }
       case 'moveItem': {
         state = { ...state, inventory: move(state.inventory, command.from, command.to) };
+        return [];
+      }
+      case 'splitItem': {
+        state = {
+          ...state,
+          inventory: splitAt(state.inventory, command.from, command.to, command.count),
+        };
         return [];
       }
       case 'discardItem': {
@@ -215,6 +278,7 @@ function makeSim(initial: WorldState, quests: SaveQuests, map: MapMeta): SimApi 
     },
     dispatch(command: SimCommand): SimEvent[] {
       const events = applyCommand(command);
+      events.push(...sweepAchievements());
       emit(events);
       return events;
     },
@@ -229,11 +293,13 @@ function makeSim(initial: WorldState, quests: SaveQuests, map: MapMeta): SimApi 
           events.push(...runNightFlow().events);
         }
       }
+      events.push(...sweepAchievements());
       emit(events);
       return events;
     },
     sleep(): DaySummary {
       const { summary, events } = runNightFlow();
+      events.push(...sweepAchievements());
       emit(events);
       return summary;
     },
@@ -260,6 +326,13 @@ function makeSim(initial: WorldState, quests: SaveQuests, map: MapMeta): SimApi 
     },
     syncPlayer(player: PlayerState): void {
       state = { ...state, player: { ...player } };
+    },
+    markIntroLetterRead(): void {
+      if ((state.progress.counters.introLetterRead ?? 0) > 0) return;
+      const next = structuredClone(state);
+      bumpCounterInPlace(next, 'introLetterRead', 1);
+      state = next;
+      emit(sweepAchievements()); // counter moved outside dispatch — keep the sweep contract
     },
   };
 }
@@ -432,9 +505,9 @@ function hydrate(save: RestorableSaveDoc, map: MapMeta): { state: WorldState; qu
 }
 
 /** Restore a sim from a validated save (storage layer has already run safeParse). */
-export function createSim(save: RestorableSaveDoc, map: MapMeta): SimApi {
+export function createSim(save: RestorableSaveDoc, map: MapMeta, options?: SimOptions): SimApi {
   const { state, quests } = hydrate(save, map);
-  return makeSim(state, quests, map);
+  return makeSim(state, quests, map, options);
 }
 
 /**
@@ -442,7 +515,7 @@ export function createSim(save: RestorableSaveDoc, map: MapMeta): SimApi {
  * day 1, minuteOfDay 360, spring, xp 0, empty farmTiles, weatherToday 'sunny' (forced),
  * weatherTomorrow pre-rolled from seed, slot0 hoe / slot1 watering_can, no seeds.
  */
-export function newGameSim(seed: string, map: MapMeta): SimApi {
+export function newGameSim(seed: string, map: MapMeta, options?: SimOptions): SimApi {
   const roll = rollWeather(rngFromSeed(seed), 2, ['sunny']); // pre-roll day 2; day 1 forced sunny
   const slots: (ItemStack | null)[] = Array.from({ length: INVENTORY.M1_CAPACITY }, () => null);
   slots[0] = { itemId: 'hoe', count: 1 };
@@ -474,5 +547,5 @@ export function newGameSim(seed: string, map: MapMeta): SimApi {
     dayLog: [],
   };
   state = refreshPickups(state, map);
-  return makeSim(state, { grantedQuestIds: [], completedCount: 0, noteRefs: [] }, map);
+  return makeSim(state, { grantedQuestIds: [], completedCount: 0, noteRefs: [] }, map, options);
 }

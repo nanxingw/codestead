@@ -1,6 +1,7 @@
 /**
  * reading-panel.ts — shared paper-style reading view for the intro letter, the market
- * bulletin board (pure stage-hint sign, GDD §1.9) and the key-map help page (§6.8).
+ * bulletin board (pure stage-hint sign, GDD §1.9), readable signposts (US5 / backlog
+ * A-3: signpost_junction / gate_sign) and the key-map help page (§6.8).
  * Query-only: never auto-opens; Esc/E/click closes.
  */
 import type Phaser from 'phaser';
@@ -16,7 +17,7 @@ import { addScrim } from '../widgets/scrim';
 import { uiText } from '../widgets/text';
 import type { Panel, UiHost } from './host';
 
-export type ReadingKind = 'letter' | 'board' | 'keysHelp';
+export type ReadingKind = 'letter' | 'board' | 'keysHelp' | 'sign';
 
 export class ReadingPanel implements Panel {
   readonly id: UiPanelId;
@@ -25,6 +26,8 @@ export class ReadingPanel implements Panel {
   constructor(
     private host: UiHost,
     kind: ReadingKind,
+    /** Interactable object id (signs only): picks the sign.<id>.* string pair. */
+    signId?: string,
   ) {
     this.id = kind;
     const scene = host.scene;
@@ -32,7 +35,7 @@ export class ReadingPanel implements Panel {
     this.track(addScrim(scene).setDepth(DEPTH.scrim));
     this.track(addPanel(scene, p.x, p.y, p.width, p.height).setDepth(DEPTH.panel));
 
-    const { title, body } = contentFor(kind, host.state());
+    const { title, body } = contentFor(kind, host.state(), signId);
     this.track(
       uiText(scene, p.x + p.width / 2, p.y + 8, title, { color: PALETTE.gold.light })
         .setOrigin(0.5, 0)
@@ -86,6 +89,7 @@ export class ReadingPanel implements Panel {
 function contentFor(
   kind: ReadingKind,
   state: Readonly<WorldState>,
+  signId?: string,
 ): { title: string; body: string } {
   switch (kind) {
     case 'letter':
@@ -94,6 +98,13 @@ function contentFor(
       return { title: t('keys.title'), body: t('keys.body') };
     case 'board':
       return { title: t('board.title'), body: boardHint(state) };
+    case 'sign': {
+      // Known ids carry curated copy (GDD §1.9/§1.3); anything else degrades to the
+      // generic weathered sign instead of echoing a raw string key.
+      const known = signId === 'signpost_junction' || signId === 'gate_sign';
+      const id = known ? signId : 'unknown';
+      return { title: t(`sign.${id}.title`), body: t(`sign.${id}.body`) };
+    }
   }
 }
 

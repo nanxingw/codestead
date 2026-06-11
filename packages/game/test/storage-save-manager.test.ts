@@ -138,6 +138,27 @@ describe('SaveManager', () => {
     expect(manager.meta.saveCount).toBe(makeMeta().saveCount); // meta not advanced
   });
 
+  it('a throwing snapshot degrades to onSaveFailed({kind:"io"}), not an unhandled throw (A-9)', async () => {
+    const failures: { trigger: SaveTrigger; kind: string }[] = [];
+    const storage = new MemorySaveStorage();
+    const manager = new SaveManager({
+      storage,
+      snapshot: () => {
+        throw new Error('serialize exploded mid-save');
+      },
+      meta: makeMeta({ saveCount: 1 }),
+      appVersion: '0.1.0',
+      now: () => Date.now(),
+      onSaveFailed: ({ trigger, failure }) => failures.push({ trigger, kind: failure.kind }),
+    });
+    await expect(manager.saveNow('night')).resolves.toBe(false); // resolves, never rejects
+    expect(failures).toEqual([{ trigger: 'night', kind: 'io' }]);
+    expect(manager.meta.saveCount).toBe(1); // meta/playtime bookkeeping untouched
+    // …and the manager still works once the snapshot recovers (next night save):
+    const healthy = makeManager({});
+    await expect(healthy.manager.saveNow('night')).resolves.toBe(true);
+  });
+
   it('refuses to write a snapshot that fails the safeParse self-check', async () => {
     const storage = new MemorySaveStorage();
     await storage.write({ marker: 'previous good save' });

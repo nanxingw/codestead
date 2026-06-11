@@ -22,6 +22,9 @@ import { addPanel } from '../widgets/panel';
 import { uiText } from '../widgets/text';
 
 const GOLD_ROLL_MS = 300;
+/** Cap-reached counter flash: ONE 400ms blink (GDD §1.4/§5.8, US36 / backlog A-2) —
+ * a single event, photosensitivity-safe (§11.7 no >1Hz flashing). */
+const TILLED_FLASH_MS = 400;
 
 export class TopRightPanel {
   private clockText: Phaser.GameObjects.Text;
@@ -35,6 +38,9 @@ export class TopRightPanel {
   private goldTarget = 0;
   private goldRollStart = -Infinity;
   private initialized = false;
+  /** Tilled-cap edge detection: flash once the moment count reaches cap (A-2). */
+  private lastTilled: { count: number; cap: number } | null = null;
+  private tilledFlashAt = -Infinity;
 
   constructor(
     private scene: Phaser.Scene,
@@ -100,6 +106,20 @@ export class TopRightPanel {
       this.tilledText.setText(
         count !== null && cap !== null ? `${t('ui.tilled_counter')} ${count}/${cap}` : '',
       );
+      if (count !== null && cap !== null) {
+        // Reaching the cap flashes the counter ONCE (GDD §1.4 「达到帽时计数器闪烁
+        // 一次」) — strictly edge-triggered so holding at cap never re-flashes.
+        if (this.lastTilled !== null && this.lastTilled.cap === cap) {
+          if (count >= cap && this.lastTilled.count < cap) this.tilledFlashAt = nowMs;
+        }
+        this.lastTilled = { count, cap };
+      }
+      const flashing = nowMs - this.tilledFlashAt < TILLED_FLASH_MS;
+      this.tilledText.setColor(flashing ? PALETTE.amber : PALETTE.ui.textDim);
+      // reducedMotion: keep the amber color cue, skip the blink (§10.8 discipline).
+      const blinkOff =
+        flashing && !this.reducedMotion() && nowMs - this.tilledFlashAt < TILLED_FLASH_MS / 2;
+      this.tilledText.setAlpha(blinkOff ? 0.25 : 1);
     } else {
       this.tilledText.setText('');
     }

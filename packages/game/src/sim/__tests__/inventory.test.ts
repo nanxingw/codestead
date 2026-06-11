@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { add, canAdd, discardAt, move, removeAt, select } from '../inventory.js';
+import { add, canAdd, discardAt, move, removeAt, select, splitAt } from '../inventory.js';
 import type { InventoryState, ItemStack } from '../types.js';
 import { makeWorldState, moduleReady, stack } from './fixtures.js';
 
@@ -114,6 +114,55 @@ describe('move — click semantics: put down / merge / swap (§6.2)', () => {
     ] as const) {
       expect(total(move(start, from, to))).toBe(120);
     }
+  });
+});
+
+describe('splitAt — partial-stack move (§6.7 right-button ops; M1.5, backlog B-11)', () => {
+  it('moves exactly count units onto an empty slot', () => {
+    const out = splitAt(inv([stack('seed_turnip', 10)]), 0, 3, 4);
+    expect(out.slots[0]).toEqual(stack('seed_turnip', 6));
+    expect(out.slots[3]).toEqual(stack('seed_turnip', 4));
+  });
+
+  it('merges into a same-id stack, clamping to the headroom (never destroys units)', () => {
+    const out = splitAt(inv([stack('crop_turnip', 50), stack('crop_turnip', 97)]), 0, 1, 5);
+    expect(out.slots[1]).toEqual(stack('crop_turnip', 99)); // +2 headroom only
+    expect(out.slots[0]).toEqual(stack('crop_turnip', 48));
+  });
+
+  it('moving the whole stack empties the source slot', () => {
+    const out = splitAt(inv([stack('seed_potato', 3)]), 0, 5, 3);
+    expect(out.slots[0]).toBeNull();
+    expect(out.slots[5]).toEqual(stack('seed_potato', 3));
+  });
+
+  it('clamps count to the source size', () => {
+    const out = splitAt(inv([stack('seed_potato', 3)]), 0, 5, 99);
+    expect(out.slots[0]).toBeNull();
+    expect(out.slots[5]).toEqual(stack('seed_potato', 3));
+  });
+
+  it('different-id target / out-of-range / non-positive count are no-ops', () => {
+    const start = inv([stack('seed_turnip', 10), stack('crop_turnip', 5)]);
+    for (const out of [
+      splitAt(start, 0, 1, 3), // different id
+      splitAt(start, 0, 0, 3), // from === to
+      splitAt(start, 0, 99, 3), // out of range
+      splitAt(start, -1, 2, 3),
+      splitAt(start, 0, 2, 0),
+      splitAt(start, 0, 2, 1.5), // non-integer
+      splitAt(start, 3, 2, 1), // empty source
+    ]) {
+      expect(out.slots).toEqual(start.slots);
+    }
+  });
+
+  it('total units are conserved across any split', () => {
+    const start = inv([stack('crop_turnip', 60), stack('crop_turnip', 80)]);
+    const out = splitAt(start, 1, 0, 70);
+    const total = (s: InventoryState): number =>
+      s.slots.reduce((sum, x) => sum + (x?.count ?? 0), 0);
+    expect(total(out)).toBe(total(start));
   });
 });
 

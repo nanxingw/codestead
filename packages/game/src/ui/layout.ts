@@ -25,6 +25,9 @@ export const SLOT_GAP = 2;
 /** Toast line sits above the hotbar at y=312; max 2 on screen (GDD §6.6/§6.7). */
 export const TOAST_Y = 312;
 
+/** Achievement toast anchor (bottom-right, origin (1,1)); 2.5s non-modal (GDD §5.8). */
+export const ACHIEVEMENT_TOAST = { x: 636, y: 356 } as const;
+
 /** Level-up banner slides in at top-center (GDD §5.8); x-extent clears HUD_RESERVED. */
 export const BANNER = { centerX: 320, y: 8, width: 296, height: 20 } as const;
 
@@ -40,8 +43,9 @@ export const BIN_PANEL = { x: 160, y: 60, width: 320, height: 240 } as const;
 /** Day-summary modal panel; full-screen scrim + centered card clear of HUD_RESERVED. */
 export const SUMMARY_PANEL = { x: 168, y: 24, width: 304, height: 312 } as const;
 
-/** Pause menu / settings / dialogs — small centered cards (4-grid). */
-export const MENU_PANEL = { x: 240, y: 96, width: 160, height: 168 } as const;
+/** Pause menu / settings / dialogs — small centered cards (4-grid).
+ *  Menu height fits 6 buttons since the M1.5 「成就」 entry (PRD 02 US12). */
+export const MENU_PANEL = { x: 240, y: 84, width: 160, height: 192 } as const;
 export const SETTINGS_PANEL = { x: 184, y: 36, width: 272, height: 288 } as const;
 export const DIALOG_PANEL = { x: 220, y: 132, width: 200, height: 96 } as const;
 export const READING_PANEL = { x: 184, y: 60, width: 272, height: 240 } as const;

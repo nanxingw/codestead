@@ -78,6 +78,7 @@ const STRINGS: Record<string, string> = {
 
   // ---- toasts (blocked reasons only, GDD §6.7) ----
   'toast.inventory_full': '背包已满',
+  'toast.tilled_cap': '农场 Lv {level} 后可打理更多田地', // §1.4 cap hint (US36, A-2)
   'toast.not_enough_gold': '金币不足',
   'toast.not_discardable': '这个不能丢弃',
   'toast.not_sellable': '这个不能出售',
@@ -86,6 +87,12 @@ const STRINGS: Record<string, string> = {
   'toast.already_owned': '已是最高档',
   'toast.overflow_summary': '还有 {n} 项新进展，详见日结算',
   'toast.save_failed': '存档写入失败——建议在设置中导出 JSON 备份',
+
+  // ---- tool upgrade feedback (GDD §3.5 升级视觉反馈; PRD 02 US22, M1.5) ----
+  'toast.tool_upgraded_hoe_copper': '铜锄头到手！长按预览直线 3 格，松开批量开垦',
+  'toast.tool_upgraded_hoe_gold': '金锄头到手！长按预览 3×3，松开批量开垦',
+  'toast.tool_upgraded_can_copper': '铜喷壶到手！一次浇直线 3 格',
+  'toast.tool_upgraded_can_gold': '金喷壶到手！一次浇 3×3',
 
   // ---- gentle hints (GDD §3.2 old-vine 温和提示, verbatim) ----
   'hint.old_vine': '这茬藤老了，换新种吧',
@@ -115,6 +122,9 @@ const STRINGS: Record<string, string> = {
   'inventory.title': '背包',
   'inventory.locked_slot': '农场升级后可扩容',
   'inventory.trash': '垃圾桶',
+  'inventory.undo': '撤销', // single-step regret slot (GDD §6.3, M1.5)
+  'inventory.undo_hint': '点击取回最近丢弃',
+  'inventory.sort_hint': '[R] 整理储备格 · Shift+左键快速移动',
   'inventory.sell_price': '售价',
 
   // ---- shop panel (GDD §4.3) ----
@@ -166,14 +176,49 @@ const STRINGS: Record<string, string> = {
   'about.manifest_failed': '无法读取 assets/manifest.json',
   'about.more_files': '…其余 {n} 项见 assets/manifest.json',
 
-  // ---- pause menu (GDD §6.7) ----
+  // ---- pause menu (GDD §6.7; 成就 tab M1.5, PRD 02 US12) ----
   'menu.title': '暂停',
   'menu.resume': '继续',
   'menu.save': '保存',
   'menu.saved': '已保存 ✓',
+  'menu.achievements': '成就',
   'menu.settings': '设置',
   'menu.keys': '键位说明',
   'menu.main_menu': '回主菜单',
+
+  // ---- achievements (GDD §5.6 名称 verbatim; M1 page = #1~#14 only, §5.3 折叠纪律) ----
+  'achievement.toast': '🏆 成就解锁 · {name}',
+  'achievement.title': '成就（{n}/{total}）',
+  'achievement.reward_xp': '+{xp} XP',
+  'achievement.reward_gold': '+{gold}g',
+  'achv.first_till.name': '破土',
+  'achv.first_till.cond': '第一次锄地',
+  'achv.first_seed.name': '第一粒种子',
+  'achv.first_seed.cond': '第一次播种',
+  'achv.first_harvest.name': '第一次收获',
+  'achv.first_harvest.cond': '第一次收获作物',
+  'achv.first_sale.name': '第一桶金',
+  'achv.first_sale.cond': '第一次售出（夜结算）',
+  'achv.rain_blessing.name': '雨天的馈赠',
+  'achv.rain_blessing.cond': '经历一个雨天',
+  'achv.first_sunrise.name': '过夜',
+  'achv.first_sunrise.cond': '第一次过夜',
+  'achv.nest_egg.name': '小有积蓄',
+  'achv.nest_egg.cond': '累计入账 1,000g',
+  'achv.moneybags.name': '千金',
+  'achv.moneybags.cond': '累计入账 10,000g',
+  'achv.hundred_harvests.name': '百次收获',
+  'achv.hundred_harvests.cond': '累计收获 100 次',
+  'achv.steady_hands.name': '如常浇灌',
+  'achv.steady_hands.cond': '累计浇水 200 次',
+  'achv.tooled_up.name': '装备升级',
+  'achv.tooled_up.cond': '升级一件工具',
+  'achv.gilded.name': '黄金装备',
+  'achv.gilded.cond': '两件工具均达金档',
+  'achv.six_crops.name': '初识六谷',
+  'achv.six_crops.cond': '6 种起步作物各售出 1 次',
+  'achv.regrow_expert.name': '再生行家',
+  'achv.regrow_expert.cond': '再生作物连收 4 茬',
 
   // ---- settings (GDD §10.7) ----
   'settings.title': '设置',
@@ -212,11 +257,18 @@ const STRINGS: Record<string, string> = {
   'summary.gold_earned': '入账 +{gold}g',
   'summary.gold_balance': '金币余额 {gold}g',
   'summary.xp': '今日 XP +{xp}',
+  // 新成就 row in the progress block (GDD §5.8; PRD 02 US11) — the toast-queue
+  // overflow line 「还有 N 项新进展，详见日结算」 points here.
+  'summary.achievement': '🏆 新成就 · {name}',
   'summary.level_up': '升到了 Lv {level}！',
+  // Cap-raising level: the summary spells out the numbers (GDD §1.4/§5.8, A-14).
+  'summary.level_up_cap': '升到了 Lv {level}！可打理田地 {prev}→{cap}',
   'summary.eta': '距 Lv {level} 还差 {xp} XP（约 {days} 天）',
   'summary.eta_keep_going': '继续耕作即可升级',
   'summary.tomorrow': '明天',
   'summary.tomorrow_rain': '☔ 明日有雨，自动浇水',
+  // Next-morning zone unlock (GDD §1.4 「日结算屏明示数字」, A-14).
+  'summary.tomorrow_zone': '🔓 明早{zone}开放 · 可打理田地 {prev}→{cap}',
   'summary.tomorrow_crop_ready': '🌱 {crop}明天成熟！',
   'summary.tomorrow_crop_in': '🌱 {crop}还需 {days} 天',
   'summary.tomorrow_fallback': '商店有新鲜种子等你',
@@ -239,6 +291,14 @@ const STRINGS: Record<string, string> = {
   'board.hint_plant': '锄地播种',
   'board.hint_water': '每天清晨浇水',
 
+  // ---- readable signs (US5 / backlog A-3; copy per GDD §1.9/§1.3) ----
+  'sign.signpost_junction.title': '路口指路牌',
+  'sign.signpost_junction.body': '→ 集市',
+  'sign.gate_sign.title': '南门施工牌',
+  'sign.gate_sign.body': '路还在修，不急。',
+  'sign.unknown.title': '木牌',
+  'sign.unknown.body': '字迹已经模糊了。',
+
   // ---- key help (GDD §6.8 condensed) ----
   'keys.title': '键位说明',
   'keys.body': [
@@ -247,6 +307,7 @@ const STRINGS: Record<string, string> = {
     'Tab / I — 背包    Esc — 暂停菜单',
     '1~9 / 滚轮 — 选择快捷栏',
     'F — 出货箱内全部入箱',
+    '背包：右键拿半堆/放 1 · Shift+左键快速移动',
     '商店：左键×1 · 右键×5 · Shift+左键整堆',
     '（M1 键位固定，暂不可改键）',
   ].join('\n'),

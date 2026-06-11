@@ -21,8 +21,13 @@ export class SlotView extends Phaser.GameObjects.Container {
   private countText: Phaser.GameObjects.Text;
   private selection: Phaser.GameObjects.Graphics;
   private lockIcon: Phaser.GameObjects.Text;
+  /** Tool tier corner badge (copper/gold; GDD §3.5 升级视觉反馈, M1.5). */
+  private tierBadge: Phaser.GameObjects.Graphics;
+  /** Lazy drop-target hover ring (M1.5 drag, GDD §6.7). */
+  private highlightRing: Phaser.GameObjects.Graphics | null = null;
   readonly zone: Phaser.GameObjects.Zone;
   private currentFrame = '';
+  private badgeTier: 1 | 2 | 3 = 1;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y);
@@ -39,11 +44,20 @@ export class SlotView extends Phaser.GameObjects.Container {
       0.5,
       0,
     );
+    this.tierBadge = scene.add.graphics();
     this.zone = scene.add
       .zone(0, 0, SLOT_SIZE, SLOT_SIZE)
       .setOrigin(0, 0)
       .setInteractive({ useHandCursor: true });
-    this.add([bg, this.selection, this.glyph, this.countText, this.lockIcon, this.zone]);
+    this.add([
+      bg,
+      this.selection,
+      this.glyph,
+      this.countText,
+      this.lockIcon,
+      this.tierBadge,
+      this.zone,
+    ]);
     scene.add.existing(this);
   }
 
@@ -52,12 +66,21 @@ export class SlotView extends Phaser.GameObjects.Container {
       this.clearIcon();
       this.glyph.setText('');
       this.countText.setText('');
+      this.setTierBadge(1);
       return this;
     }
     const def = getItemDef(stack.itemId);
     let frame = def.iconFrame;
-    if (tools && stack.itemId === 'hoe') frame = toolFrame('hoe', tools.hoe);
-    if (tools && stack.itemId === 'watering_can') frame = toolFrame('can', tools.wateringCan);
+    let tier: 1 | 2 | 3 = 1;
+    if (tools && stack.itemId === 'hoe') {
+      frame = toolFrame('hoe', tools.hoe);
+      tier = tools.hoe;
+    }
+    if (tools && stack.itemId === 'watering_can') {
+      frame = toolFrame('can', tools.wateringCan);
+      tier = tools.wateringCan;
+    }
+    this.setTierBadge(tier);
     if (hasFrame(this.scene, TEXTURES.items, frame)) {
       this.showIcon(frame);
       this.glyph.setText('');
@@ -70,9 +93,34 @@ export class SlotView extends Phaser.GameObjects.Container {
     return this;
   }
 
+  /** 4px bottom-left corner badge: copper = amber, gold = gold.light; tier 1 = none. */
+  private setTierBadge(tier: 1 | 2 | 3): void {
+    if (tier === this.badgeTier) return;
+    this.badgeTier = tier;
+    this.tierBadge.clear();
+    if (tier < 2) return;
+    const color = hexToNum(tier === 2 ? PALETTE.amber : PALETTE.gold.light);
+    this.tierBadge.fillStyle(hexToNum(PALETTE.ink), 1);
+    this.tierBadge.fillRect(0, SLOT_SIZE - 6, 6, 6);
+    this.tierBadge.fillStyle(color, 1);
+    this.tierBadge.fillRect(1, SLOT_SIZE - 5, 4, 4);
+  }
+
   setSelected(selected: boolean): this {
     this.selection.setVisible(selected);
     this.setY(this.y); // y handled by owner (lift 2px on select per §6.2)
+    return this;
+  }
+
+  /** Drop-target hover highlight while dragging (M1.5, GDD §6.7 悬停高亮). */
+  setHighlight(on: boolean): this {
+    if (on && this.highlightRing === null) {
+      this.highlightRing = this.scene.add.graphics();
+      this.highlightRing.lineStyle(1, hexToNum(PALETTE.sand), 1);
+      this.highlightRing.strokeRect(0.5, 0.5, SLOT_SIZE - 1, SLOT_SIZE - 1);
+      this.addAt(this.highlightRing, 1);
+    }
+    this.highlightRing?.setVisible(on);
     return this;
   }
 
@@ -83,6 +131,7 @@ export class SlotView extends Phaser.GameObjects.Container {
       this.clearIcon();
       this.glyph.setText('');
       this.countText.setText('');
+      this.setTierBadge(1);
     }
     return this;
   }

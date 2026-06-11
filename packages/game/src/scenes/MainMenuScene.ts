@@ -226,7 +226,9 @@ export class MainMenuScene extends Phaser.Scene {
     for (const warning of outcome.warnings) {
       console.warn('[menu] tolerant load (§10.9):', warning);
     }
-    const sim = createSim(toRestorable(outcome.doc), this.mapMeta());
+    // Achievements engine ON for the real game session (GDD §4.6 / B-3: deduction
+    // and test entry points stay on the default-off mode).
+    const sim = createSim(toRestorable(outcome.doc), this.mapMeta(), { achievements: true });
     this.registry.set(REGISTRY_KEYS.sim, sim);
     const bundle: BootBundle = {
       storage: deps.storage,

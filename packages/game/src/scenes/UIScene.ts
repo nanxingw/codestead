@@ -11,6 +11,7 @@ import { NotificationsView } from '../ui/hud/notifications-view';
 import { TopRightPanel } from '../ui/hud/top-right-panel';
 import { NotificationsModel } from '../ui/notifications';
 import type { Panel, UiHost } from '../ui/panels/host';
+import { AchievementsPanel } from '../ui/panels/achievements-panel';
 import { SleepConfirmPanel } from '../ui/panels/confirm-dialog';
 import { DaySummaryPanel } from '../ui/panels/day-summary-panel';
 import { InventoryPanel } from '../ui/panels/inventory-panel';
@@ -43,6 +44,8 @@ export interface UiSceneApi {
   openSleepConfirm(): void;
   openLetter(): void;
   openBoard(): void;
+  /** Readable signposts (US5 / backlog A-3): signpost_junction / gate_sign. */
+  openSign(signId: string): void;
   /** Blocked-reason toast from the world layer (e.g. 背包已满 on harvest). */
   toastText(text: string): void;
 }
@@ -171,8 +174,11 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       case 'letter':
         this.openLetter();
         break;
+      case 'sign': // US5 / backlog A-3: signposts are readable
+        this.openSign(payload.id);
+        break;
       default:
-        break; // well / signs: ambience only in M1 (GDD §1.3 — 喷壶无限水，水井留作氛围)
+        break; // well: ambience only in M1 (GDD §1.3 — 喷壶无限水，水井留作氛围)
     }
   };
 
@@ -216,10 +222,17 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
 
   openLetter(): void {
     this.openPanel('letter');
+    // US86 / backlog A-4: the first read pins the one-time semantics (idempotent
+    // counter; the world layer drops the porch highlight off this state).
+    this.ctx?.sim.markIntroLetterRead();
   }
 
   openBoard(): void {
     this.openPanel('board');
+  }
+
+  openSign(signId: string): void {
+    this.openPanel('sign', undefined, signId);
   }
 
   toastText(text: string): void {
@@ -228,10 +241,13 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
 
   // ---- stack management (invariant: depth > 0 ⇔ UI pause sources active) ----
 
-  private openPanel(id: UiPanelId, summary?: DaySummary): void {
+  private openPanel(id: UiPanelId, summary?: DaySummary, signId?: string): void {
     if (!this.ctx) return;
     if (!this.stack.push(id)) return; // mutual exclusion (GDD §6.5)
-    this.panels.push(this.buildPanel(id, summary));
+    // Hide the covered parent (panels share DEPTH tokens, so a visible parent's
+    // depth-(panel+1) widgets would bleed through the child's panel background).
+    this.panels.at(-1)?.setCovered?.(true);
+    this.panels.push(this.buildPanel(id, summary, signId));
     this.topOpenedAt = this.time.now;
     this.syncPauseSources();
   }
@@ -240,6 +256,11 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     const removed = this.stack.pop();
     if (removed === null) return;
     this.panels.pop()?.destroy();
+    const top = this.panels.at(-1);
+    if (top !== undefined) {
+      top.setCovered?.(false);
+      top.refresh();
+    }
     this.topOpenedAt = this.time.now;
     this.syncPauseSources();
     // Dismissing the summary hands control back to the world (fade-in + resume).
@@ -271,7 +292,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     this.notifications.setModalOpen(this.stack.depth() > 0); // §5.8 queue discipline
   }
 
-  private buildPanel(id: UiPanelId, summary?: DaySummary): Panel {
+  private buildPanel(id: UiPanelId, summary?: DaySummary, signId?: string): Panel {
     switch (id) {
       case 'inventory':
         return new InventoryPanel(this.host);
@@ -283,10 +304,14 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
         return new PauseMenuPanel(this.host);
       case 'settings':
         return new SettingsPanel(this.host);
+      case 'achievements':
+        return new AchievementsPanel(this.host); // M1.5 成就 tab (PRD 02 US12)
       case 'keysHelp':
       case 'letter':
       case 'board':
         return new ReadingPanel(this.host, id);
+      case 'sign':
+        return new ReadingPanel(this.host, 'sign', signId); // US5 / backlog A-3
       case 'sleepConfirm':
         return new SleepConfirmPanel(this.host);
       case 'daySummary': {
@@ -317,6 +342,15 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     switch (event.type) {
       case 'GoldChanged':
         this.playSfx(SFX.coins);
+        break;
+      case 'AchievementUnlocked':
+        // Bottom-right 2.5s non-modal toast (GDD §5.8; PRD 02 US2). SFX reuses one of
+        // the 8 M1 sounds (§11.5 audio convergence) — a dedicated jingle is M3.
+        this.notifications.achievement(
+          t('achievement.toast', { name: t(`achv.${event.id}.name`) }),
+          now,
+        );
+        this.playSfx(SFX.itemGet);
         break;
       case 'CropHarvested': {
         // The pick that exhausts a regrow crop's pod season leaves the old vine behind

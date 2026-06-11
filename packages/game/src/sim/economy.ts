@@ -154,6 +154,11 @@ export function depositAllToBin(state: WorldState): { state: WorldState; events:
  * collectionLog first-sale records → one ItemSold event per (aggregated) line; empty
  * bin settles as "nothing sold today" (not an error). sellCount / goldEarned /
  * soldCrops:<id> counters bump here.
+ *
+ * Zero-loss rule (GDD §4.8 / backlog A-8): a KNOWN item without a sellPrice (e.g. a
+ * tool smuggled into the bin by a hand-edited import) is never silently destroyed —
+ * the line stays in the bin after settlement, available for withdrawal next morning.
+ * (Unknown itemIds were already dropped with a warning at hydrate, §10.9.)
  */
 export function settleShipping(state: WorldState): {
   state: WorldState;
@@ -191,7 +196,11 @@ export function settleShipping(state: WorldState): {
     events.push({ type: 'ItemSold', itemId: itemId as ItemId, count: line.count, gold: line.gold });
   }
 
-  next.economy.shippingBin = [];
+  // Clear settled lines only; keep known-but-unpriceable lines for retrieval (A-8).
+  next.economy.shippingBin = next.economy.shippingBin.filter((stack) => {
+    const def = ITEMS_BY_ID.get(stack.itemId);
+    return def !== undefined && def.sellPrice === undefined;
+  });
   if (total > 0) {
     const before = next.economy.gold;
     next.economy.gold = credit(before, total);
@@ -315,8 +324,13 @@ export function buy(
     return { blocked: affordable === 0 ? 'INSUFFICIENT_GOLD' : 'INVENTORY_FULL' };
   }
   const cost = granted * entry.price;
+  // Wallet discipline (US63 / backlog A-6): every sink goes through debit() — the
+  // `granted ≤ affordable` clamp above makes this unreachable, but the never-negative
+  // wallet invariant (GDD §4.1) is defended here, not implied.
+  const paid = debit(state.economy.gold, cost);
+  if (paid === 'INSUFFICIENT_GOLD') return { blocked: 'INSUFFICIENT_GOLD' };
   const next = structuredClone(state);
-  next.economy.gold -= cost;
+  next.economy.gold = paid;
   addInPlace(next.inventory, itemId, granted);
   const events: SimEvent[] = [
     { type: 'GoldChanged', gold: next.economy.gold, delta: -cost },

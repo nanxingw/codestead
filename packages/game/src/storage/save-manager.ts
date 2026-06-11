@@ -139,13 +139,23 @@ export class SaveManager {
   }
 
   private async performSave(trigger: SaveTrigger): Promise<boolean> {
+    // A throw from snapshot/advanceMeta/composeSaveDoc must degrade to the same
+    // gentle onSaveFailed path as a storage error — never an unhandled rejection
+    // that silently kills autosave (backlog A-9; §10.9 gentle-failure contract).
+    let candidateMeta: SaveMeta;
+    let doc: unknown;
     const now = this.now();
-    const candidateMeta = advanceMeta(this.currentMeta, {
-      now,
-      elapsedRealSeconds: (now - this.lastSavedAt) / 1000,
-      appVersion: this.appVersion,
-    });
-    const doc = composeSaveDoc(this.snapshot(), candidateMeta);
+    try {
+      candidateMeta = advanceMeta(this.currentMeta, {
+        now,
+        elapsedRealSeconds: (now - this.lastSavedAt) / 1000,
+        appVersion: this.appVersion,
+      });
+      doc = composeSaveDoc(this.snapshot(), candidateMeta);
+    } catch (error) {
+      this.onSaveFailed?.({ trigger, failure: { kind: 'io', error } });
+      return false;
+    }
 
     const validated = validateSaveDoc(doc);
     if (!validated.ok) {

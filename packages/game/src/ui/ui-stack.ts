@@ -8,8 +8,9 @@
  *   - inventory / shop / shippingBin / letter / board / sleepConfirm → 'dialog'
  *   - daySummary → 'day_summary' (the ONLY auto-opened modal)
  *
- * Stack rules (§6.5): only one panel chain at a time; settings/keysHelp may stack on
- * the pause menu; everything else opens only from an empty stack. Phaser-free.
+ * Stack rules (§6.5): only one panel chain at a time; settings/keysHelp/achievements
+ * may stack on the pause menu; everything else opens only from an empty stack.
+ * Phaser-free.
  */
 import type { PauseSource } from '../sim/types';
 
@@ -20,27 +21,31 @@ export type UiPanelId =
   | 'pauseMenu'
   | 'settings'
   | 'keysHelp'
+  | 'achievements'
   | 'daySummary'
   | 'sleepConfirm'
   | 'letter'
-  | 'board';
+  | 'board'
+  | 'sign'; // readable signposts (US5 / backlog A-3, M1.5)
 
 export const PANEL_PAUSE_SOURCE: Readonly<Record<UiPanelId, PauseSource>> = {
   pauseMenu: 'menu',
   settings: 'menu',
   keysHelp: 'menu',
+  achievements: 'menu', // Esc-menu 「成就」 tab (M1.5, PRD 02 US12)
   inventory: 'dialog',
   shop: 'dialog',
   shippingBin: 'dialog',
   letter: 'dialog',
   board: 'dialog',
+  sign: 'dialog',
   sleepConfirm: 'dialog',
   daySummary: 'day_summary',
 };
 
 /** Panels allowed to be pushed on top of an existing panel (parent → children). */
 const NESTABLE: Readonly<Partial<Record<UiPanelId, readonly UiPanelId[]>>> = {
-  pauseMenu: ['settings', 'keysHelp'],
+  pauseMenu: ['settings', 'keysHelp', 'achievements'],
 };
 
 export class UiStackModel {

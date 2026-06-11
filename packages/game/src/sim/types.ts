@@ -150,6 +150,9 @@ export type CounterId =
   | 'sleepCount'
   | 'rainDaysSeen'
   | 'toolUpgrades'
+  /** One-time onboarding flag (US86 porch letter, backlog A-4): 0/absent = unread,
+   * 1 = read. A counter (not a schema field) so SaveDoc v1 stays untouched (PRD 02). */
+  | 'introLetterRead'
   | 'regrowChainMax'
   | 'buildingsBuilt'
   | `built:${string}`
@@ -253,6 +256,11 @@ export type SimCommand =
   | { type: 'interact'; tile: TilePos; itemId: ItemId | null }
   | { type: 'selectSlot'; slot: number } // 0..8
   | { type: 'moveItem'; from: number; to: number }
+  /** Partial-stack move (M1.5 drag right-button ops, GDD §6.7 拿半堆/放 1): exactly
+   * `count` units from `from` onto an empty or same-id slot. ADDITIVE command — the
+   * InventoryApi six methods and the save schema stay untouched (PRD 02 red line);
+   * channel shape pending owner ratification, see m1-review-backlog.md B-11. */
+  | { type: 'splitItem'; from: number; to: number; count: number }
   | { type: 'discardItem'; slot: number } // trash can; destroy (GDD §6.3)
   | { type: 'depositToBin'; slot: number; count: number }
   | { type: 'withdrawFromBin'; index: number; count: number }
@@ -272,6 +280,10 @@ export type SimEvent =
   | { type: 'ItemPicked'; itemId: ItemId; count: number }
   | { type: 'ItemSold'; itemId: ItemId; count: number; gold: number }
   | { type: 'GoldChanged'; gold: number; delta: number }
+  /** Achievement unlock (GDD §5.6 / PRD 02 — the `achievement:unlocked` contract event).
+   * `id` stays `string` (not AchievementId) so types.ts never imports the achievements
+   * data table (one-way dependency); reward fields mirror the §5.6 table row. */
+  | { type: 'AchievementUnlocked'; id: string; xp: number; gold: number }
   | { type: 'FarmLevelUp'; level: number; tilledCap: number }
   | { type: 'DayStarted'; day: number; weather: Weather }
   | { type: 'DayEnded'; summary: DaySummary }
@@ -288,8 +300,10 @@ export type TomorrowItem =
   | { kind: 'cropReady'; cropId: CropId; inDays: number }
   | { kind: 'construction'; buildingId: string; inDays: number } // M3
   | { kind: 'seasonEnd'; inDays: number } // M3
-  /** Fixed fallback so the promise list is NEVER empty (§2.5 「商店有新鲜种子等你」).
-   * Additive extension beyond the GDD §2.5 union — recorded as apiDrift. */
+  /** Next-morning field unlock earned by today's level-up (GDD §1.4 「日结算屏明示
+   * 数字」/ §2.5; backlog A-14): 「明早西田开放 · 可打理田地 12→18」. */
+  | { kind: 'zoneUnlocked'; zoneId: string; prevCap: number; newCap: number }
+  /** Fixed fallback so the promise list is NEVER empty (§2.5 「商店有新鲜种子等你」). */
   | { kind: 'shopTeaser' };
 
 export interface DaySummary {
@@ -304,6 +318,13 @@ export interface DaySummary {
   goldBalance: number;
   xpGained: number;
   levelUps: number[];
+  /** Achievement ids unlocked by THIS settlement's sweep (GDD §5.8 progress block
+   * 「新成就」; PRD 02 US11). Settlement counters (sellCount/goldEarned/sleepCount/
+   * rainDaysSeen) unlock at night, so the sweep runs BEFORE the summary snapshot —
+   * which also keeps `goldBalance` equal to the autosaved wallet after instant
+   * achievement gold (GDD §2.5 contract). Transient, never saved; empty with the
+   * achievement engine off (ruling B-3 deduction mode). */
+  achievementsUnlocked: string[];
   /** ≤3 items, ascending by inDays; NEVER empty — fall back to the shop teaser (§2.5). */
   tomorrow: TomorrowItem[];
   weatherNext: Weather;

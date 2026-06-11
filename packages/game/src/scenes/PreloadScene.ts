@@ -110,7 +110,9 @@ export class PreloadScene extends Phaser.Scene {
         for (const warning of outcome.warnings) {
           console.warn('[boot] tolerant load (§10.9):', warning);
         }
-        const sim = createSim(toRestorable(outcome.doc), mapMeta);
+        // Achievements engine ON for the real game session; deduction/test entry
+        // points stay on the default-off mode (GDD §4.6 / ruling B-3 decoupling).
+        const sim = createSim(toRestorable(outcome.doc), mapMeta, { achievements: true });
         this.registry.set(REGISTRY_KEYS.sim, sim);
         const bundle: BootBundle = {
           storage: deps.storage,

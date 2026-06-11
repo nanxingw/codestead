@@ -7,9 +7,11 @@ import { describe, expect, it } from 'vitest';
 import {
   canTill,
   getTile,
+  nextCapLevel,
   parseTileKey,
   pendingZoneUnlocks,
   tileKey,
+  tillBlockedByCap,
   tilledCapForLevel,
   tilledCount,
 } from '../tiles.js';
@@ -99,6 +101,33 @@ describe('canTill — T1 condition chain (GDD §3.3 T1)', () => {
     const state = makeWorldState({ farm: { tiles, unlockedZones: ['field_a'] } });
     expect(canTill(state, TEST_MAP, { x: 22, y: 14 })).toBe(false); // already tilled
     expect(canTill(state, TEST_MAP, { x: 27, y: 16 })).toBe(false); // cap reached
+  });
+});
+
+describe('cap-reached feedback helpers (GDD §1.4 hint, US36 / backlog A-2)', () => {
+  /** Lv1 state with the 12-tile cap fully used inside field A. */
+  function atCapState(): ReturnType<typeof makeWorldState> {
+    const tiles: Record<string, TileState> = {};
+    for (let i = 0; i < 12; i++) tiles[`${22 + (i % 8)},${14 + Math.floor(i / 8)}`] = tilled();
+    return makeWorldState({ farm: { tiles, unlockedZones: ['field_a'] } });
+  }
+
+  it('tillBlockedByCap fires ONLY when the cap is the single blocking reason', () => {
+    const state = atCapState();
+    expect(tillBlockedByCap(state, TEST_MAP, { x: 27, y: 16 })).toBe(true); // cap-only
+    expect(tillBlockedByCap(state, TEST_MAP, { x: 22, y: 14 })).toBe(false); // already tilled
+    expect(tillBlockedByCap(state, TEST_MAP, { x: 5, y: 5 })).toBe(false); // not tillable
+    expect(tillBlockedByCap(state, TEST_MAP, { x: 10, y: 14 })).toBe(false); // fenced field B
+    expect(tillBlockedByCap(makeWorldState(), TEST_MAP, { x: 22, y: 14 })).toBe(false); // under cap
+  });
+
+  it('nextCapLevel names the §1.4 bracket the hint points at (「农场 Lv N 后…」)', () => {
+    expect(nextCapLevel(1)).toBe(3); // 12 → 18 @Lv3
+    expect(nextCapLevel(2)).toBe(3);
+    expect(nextCapLevel(3)).toBe(5); // 18 → 24 @Lv5
+    expect(nextCapLevel(5)).toBe(7); // M1 effective max level still names Lv7 (M3)
+    expect(nextCapLevel(9)).toBeNull(); // top bracket: no hint target
+    expect(nextCapLevel(10)).toBeNull();
   });
 });
 
