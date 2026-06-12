@@ -117,6 +117,23 @@ export const ICONS = {
 
 export const PLAYER_ACTOR = 'player';
 
+/**
+ * M4 villager actors (ai-quests §1.1/§1.3). The atlas frames ride the standard
+ * `{actor}_{anim}_{dir}_{frame}` contract (Kenney Roguelike Characters CC0 基底 +
+ * 职业配件, §1.3); until the art batch lands, src/world/npc.ts synthesizes a
+ * distinct 16×16 placeholder per villager so the world still boots (textures.ts
+ * fallback discipline). M4 only needs 2-frame idle + facing flip — NO walk/swing
+ * (NPCs 站桩, §1.3 寻路与日程 explicitly Out).
+ */
+export const NPC_ACTORS = {
+  npc_carpenter: 'npc_carpenter',
+  npc_grocer: 'npc_grocer',
+  npc_keeper: 'npc_keeper',
+} as const;
+
+/** 8×8 quest bubble frame floated over an NPC with a pending quest (§6.1). */
+export const QUEST_BUBBLE_FRAME = 'ui_quest_bubble';
+
 /** Walk 4 frames @8fps; tool swing overlay 3 frames @12fps (~250ms) (GDD §11.4). */
 export function actorFrame(
   actor: string,

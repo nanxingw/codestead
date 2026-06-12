@@ -244,7 +244,8 @@ const STRINGS: Record<string, string> = {
   'settings.sessions_section': '会话面板',
   'settings.sessions_badge': 'M2 可用',
   'settings.quests_section': '村民任务',
-  'settings.quests_badge': 'M4 可用',
+  'settings.quests_badge': 'M4 可用', // legacy key (kept for compatibility; superseded by quests_open)
+  'settings.quests_open': '设置 ▸',
   'settings.save_section': '存档',
   'settings.export': '导出存档 JSON',
   'settings.import': '导入存档 JSON',
@@ -460,6 +461,35 @@ const STRINGS: Record<string, string> = {
   'achv.mastery.name': '精通',
   'achv.mastery.cond': 'XP 达到 15,000',
   'achievement.page_hint': '第 {page}/{total} 页 · ↑↓ 翻页',
+
+  // ---- villagers & AI quests (M4, ai-quests §6.4 settings / §6.2 dialogue / §3.5) ----
+  'quest.settings.title': '村民与 AI 任务',
+  'quest.settings.villagerTasks': '村民任务（关闭后村民只闲聊）',
+  'quest.settings.aiGeneration': '允许 AI 根据我的工作出题',
+  'quest.settings.aiGeneration.note':
+    '说明：调用本机 claude CLI，消耗你的 Claude 额度；工作内容只在本机与你已有的 Claude 通道中处理。',
+  'quest.settings.frequency': '出题间隔',
+  'quest.settings.frequency.low': '偶尔（≥30 分钟，默认）',
+  'quest.settings.frequency.normal': '常来（≥15 分钟）',
+  'quest.settings.dailyBudget': '每日预算',
+  'quest.settings.arrivalSound': '任务到达提示音',
+  'quest.settings.notesLocation': '思考笔记位置',
+  'quest.settings.aiHint': '想听新问题？允许 AI 根据你的工作出题',
+  // dialogue chrome (§6.2)
+  'quest.tag.decision': '任务 · 决策',
+  'quest.tag.reflection': '任务 · 反思',
+  'quest.footer.advance': 'E/点击 继续',
+  'quest.footer.choose': '↑↓ 或 1~4 选择 · E 确认',
+  'quest.footer.submit': 'Ctrl+Enter 提交',
+  'quest.footer.skip': 'Tab 跳过',
+  'quest.footer.dismiss': 'Esc 先不聊（任务保留）',
+  'quest.footer.done': 'E 回去干活',
+  'quest.reward.noteSaved': '✦ 思考笔记已存好',
+  // settlement-screen 明日预告 line (§6.3) — {npc} 在 {place}，想听听你的想法
+  'quest.settlement.pending': '🌾 {npc}在{place}，想听听你的想法',
+  'quest.place.npc_carpenter': '木工台旁',
+  'quest.place.npc_grocer': '杂货摊',
+  'quest.place.npc_keeper': '水渠边',
 
   // ---- key help (GDD §6.8 condensed) ----
   'keys.title': '键位说明',

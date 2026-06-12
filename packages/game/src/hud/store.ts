@@ -241,6 +241,12 @@ export function applyServerMessage(state: HudState, message: ServerMessage, at: 
     }
     case 'heartbeat':
       return next; // liveness bookkeeping already applied above
+    default:
+      // Quest frames (questSnapshot / questOffer / questRevoked / questReward,
+      // M4 PRD 05) are handled by the SEPARATE QuestStore — the HUD has ZERO
+      // coupling to quests (ai-quests §13). They still refresh liveness (applied
+      // above) but never touch session/cooldown state here.
+      return next;
   }
 }
 

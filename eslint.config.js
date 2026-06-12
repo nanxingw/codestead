@@ -45,6 +45,23 @@ export default tseslint.config(
     files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },
+  // Node test fixtures executed as standalone processes (e.g. the M4 stub-claude
+  // fake CLI, PRD 05 seam e) run in a Node runtime — declare its globals so
+  // no-undef doesn't flag Buffer/timers. Scoped to test fixtures only.
+  {
+    files: ['packages/*/test/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        process: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+      },
+    },
+  },
   // ---- Architecture boundary: idb-keyval is only allowed inside game's storage module
   // (game-design §10.1). The rule exists from M0 so it is already law when M1 adds saves.
   {

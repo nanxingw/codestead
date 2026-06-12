@@ -39,7 +39,19 @@ import { createFileDaemonRuntimeStore } from './config/runtime-store.js';
 import { generateToken } from './config/token.js';
 import { InstallerError, installHooks, uninstallHooks } from './install/installer.js';
 import { startHookRecorder } from './install/recorder.js';
-import { createDaemonServer } from './server/server.js';
+import { createFileQuestJournals } from './quest/accounting.js';
+import { loadAiQuestsConfig, patchAiQuestsConfig, type AiQuestsConfig } from './quest/config.js';
+import {
+  createSpawnClaudeRunner,
+  detectClaudeFeatures,
+  type ClaudeRunner,
+} from './quest/exec-claude.js';
+import { createFileNotes } from './quest/notes.js';
+import { createFileQuestStateStore } from './quest/persistence.js';
+import { createQuestEngine, type QuestEngine } from './quest/runtime.js';
+import { TRIGGER_TICK_MS } from './quest/types.js';
+import { createTranscriptTailReader } from './quest/transcript-fs.js';
+import { createDaemonServer, type DaemonServer } from './server/server.js';
 import { normalizeHookEvent } from './signals/hooks-wire.js';
 import { createHooksSignalSource } from './signals/hooks.js';
 import { PS_ARGS, createPsPollSource } from './signals/ps.js';
@@ -66,6 +78,12 @@ export interface CliDeps {
   /** Server/recorder port override (0 = OS-assigned, tests only); default 43110 window. */
   readonly basePort?: number;
   readonly now?: () => number;
+  /**
+   * M4 stub-claude seam (PRD 05 seam e): inject a fake ClaudeRunner so integration
+   * tests never spawn the real binary / touch the network. The real bin entry
+   * omits it → createSpawnClaudeRunner against the discovered `claude` path.
+   */
+  readonly claudeRunner?: ClaudeRunner;
 }
 
 /**
@@ -132,11 +150,19 @@ async function runStart(deps: CliDeps): Promise<number> {
   // ---- reducer loop: single mutable cell, events in → frames out ----
   let table: SessionTable = EMPTY_SESSION_TABLE;
   let broadcast: ((message: ServerMessage) => void) | null = null;
+  // The M4 quest engine (null when 总开关 enabled=false — A1: the module never
+  // starts, no generation / no quest messages / no claude call). Set below after
+  // config load + feature-detect; events are forwarded to it for §3.3-② prompt
+  // bookkeeping. The HUD/session path is utterly unchanged whether it is set.
+  let questEngine: QuestEngine | null = null;
   // lastSignalAt-only upserts are rate-limited per session (hud-sessions §10.2);
   // heartbeat frames keep liveness, getSnapshot reads the live table.
   const throttleUpserts = createUpsertThrottle();
 
   const applyEvent = (event: SessionEvent): void => {
+    // M4: feed the quest engine FIRST for prompt-delta bookkeeping (it never reads
+    // or mutates the session table; pure side bookkeeping, §13 zero coupling).
+    questEngine?.onSessionEvent(event);
     const next = reduceSessions(table, event);
     if (next === table) return; // no-op events produce no frames (reducer contract)
     const patches = throttleUpserts(diffSessionTables(table, next), now());
@@ -186,6 +212,24 @@ async function runStart(deps: CliDeps): Promise<number> {
   }, TICK_INTERVAL_MS);
   tickTimer.unref();
 
+  // ---- M4 quest module (gated by 总开关 enabled, §9 / A1) ----
+  // Loaded BEFORE the server so the server is constructed with the quest hooks
+  // already in place; when enabled=false, NONE of this runs (no engine, no
+  // feature-detect spawn, no claude call — A1).
+  const questServerRef: { server: DaemonServer | null } = { server: null };
+  const questCtx = await maybeStartQuestEngine({
+    paths,
+    now,
+    isGameConnected: () => (questServerRef.server?.clientCount() ?? 0) > 0,
+    getSessionTable: () => table,
+    broadcast: (message) => {
+      broadcast?.(message);
+    },
+    claudeRunnerOverride: deps.claudeRunner,
+    stdout: deps.stdout,
+  });
+  questEngine = questCtx?.engine ?? null;
+
   // ---- server + runtime file ----
   const server = await createDaemonServer({
     token,
@@ -195,12 +239,34 @@ async function runStart(deps: CliDeps): Promise<number> {
       hooksSource.handleHookBody(body, at);
     },
     getSnapshot: () => [...table.values()].map((record) => record.info),
+    ...(questEngine !== null
+      ? {
+          onClientMessage: (message) => {
+            // Only the three M4 frames reach here (auth is excluded by the server);
+            // the server's Exclude<ClientMessage,auth> matches the engine's input.
+            questEngine?.onClientMessage(message);
+          },
+          getPostAuthFrames: () => questEngine?.getPostAuthFrames() ?? [],
+        }
+      : {}),
     basePort: deps.basePort,
     now,
   });
+  questServerRef.server = server;
   broadcast = (message) => {
     server.broadcast(message);
   };
+
+  // Quest trigger tick (60s, §3.2). Only when the engine is live. Errors are
+  // swallowed — a tick must NEVER crash the daemon (§10 / A6).
+  let questTickTimer: NodeJS.Timeout | null = null;
+  if (questEngine !== null) {
+    const engine = questEngine;
+    questTickTimer = setInterval(() => {
+      void engine.tick().catch(() => undefined);
+    }, TRIGGER_TICK_MS);
+    questTickTimer.unref();
+  }
 
   const runtimeStore = createFileDaemonRuntimeStore(paths.daemonRuntimeFile);
   await runtimeStore.write({
@@ -221,6 +287,7 @@ async function runStart(deps: CliDeps): Promise<number> {
 
   // ---- graceful shutdown: timers → sources → server → runtime file ----
   clearInterval(tickTimer);
+  if (questTickTimer !== null) clearInterval(questTickTimer);
   await psSource.stop();
   await transcriptSource.stop();
   await hooksSource.stop();
@@ -228,6 +295,105 @@ async function runStart(deps: CliDeps): Promise<number> {
   await runtimeStore.remove(); // a stale file must never advertise a dead daemon
   deps.stdout('[codestead] stopped.');
   return 0;
+}
+
+interface QuestEngineSetupArgs {
+  readonly paths: ReturnType<typeof resolveCodesteadPaths>;
+  readonly now: () => number;
+  readonly isGameConnected: () => boolean;
+  readonly getSessionTable: () => SessionTable;
+  readonly broadcast: (message: ServerMessage) => void;
+  readonly claudeRunnerOverride?: ClaudeRunner;
+  readonly stdout: (line: string) => void;
+}
+
+/**
+ * Build + initialize the M4 quest engine IFF the 总开关 is on (§9 / A1). Returns
+ * null when `enabled=false` — and CRUCIALLY does NOT feature-detect or spawn
+ * anything in that case, so A1's "0 claude calls when disabled" holds at the
+ * composition root. Live config is read fresh each tick via `getConfig` so a
+ * first-consent choice (which patches config.json) takes effect without a restart.
+ */
+async function maybeStartQuestEngine(
+  args: QuestEngineSetupArgs,
+): Promise<{ engine: QuestEngine } | null> {
+  const { paths, now, stdout } = args;
+
+  // Load + clamp config. enabled=false ⇒ the module never starts (A1).
+  const loaded = await loadAiQuestsConfig(paths.configFile);
+  for (const note of loaded.notes) stdout(`[codestead] config clamp: ${note}`);
+  if (!loaded.config.enabled) {
+    stdout('[codestead] quests: 总开关 off (enabled=false) — villager tasks disabled.');
+    return null;
+  }
+
+  // A live config cell so the consent flow / hot-update can mutate it in place.
+  let config: AiQuestsConfig = loaded.config;
+
+  // Feature-detect the claude CLI (§4.5 / A6). On failure the AI path stays off
+  // (degrade to local pool); NEVER crash. Skipped when a stub runner is injected
+  // AND aiGeneration is off (no point probing), but we still probe with the stub
+  // so the integration test can assert the available/unavailable branch.
+  const claudeRunner: ClaudeRunner = args.claudeRunnerOverride ?? createSpawnClaudeRunner('claude');
+  let aiPathAvailable: boolean;
+  try {
+    const detect = await detectClaudeFeatures(claudeRunner);
+    aiPathAvailable = detect.available;
+    if (!detect.available && config.aiGeneration) {
+      stdout(
+        `[codestead] quests: AI path unavailable (${detect.reason ?? 'unknown'}) — local pool only.`,
+      );
+    }
+  } catch {
+    aiPathAvailable = false;
+  }
+
+  const engine = createQuestEngine({
+    getConfig: () => config,
+    getSessionTable: args.getSessionTable,
+    isGameConnected: args.isGameConnected,
+    broadcast: args.broadcast,
+    claudeRunner,
+    aiPathAvailable,
+    transcriptReader: createTranscriptTailReader(),
+    stateStore: createFileQuestStateStore(paths.questStateFile),
+    journals: createFileQuestJournals(paths.questsDir),
+    notes: createFileNotes(paths.notesDir),
+    homeDir: homeOf(paths),
+    nowMonotonicMs: now,
+    nowWallMs: now,
+    onConsentChoice: (choice) => {
+      // a → aiGeneration on; b → unchanged; c → 总开关 off (cleared next tick).
+      if (choice === 'enableAi') {
+        void patchAiQuestsConfig(paths.configFile, { aiGeneration: true })
+          .then((merged) => {
+            config = merged;
+          })
+          .catch(() => undefined);
+      } else if (choice === 'disableAll') {
+        void patchAiQuestsConfig(paths.configFile, { enabled: false })
+          .then((merged) => {
+            config = merged;
+            engine.shutdownClearField();
+          })
+          .catch(() => undefined);
+      }
+      // 'localOnly' (b) → no config change.
+    },
+  });
+  await engine.init();
+  // Re-push recovered state to nobody yet (no clients at boot); getPostAuthFrames
+  // covers the first connect. Done.
+  stdout(
+    `[codestead] quests: enabled (aiGeneration=${String(config.aiGeneration)}, aiPath=${String(aiPathAvailable)}).`,
+  );
+  return { engine };
+}
+
+/** Home dir from the resolved paths (codesteadDir's parent) for sanitize() $HOME. */
+function homeOf(paths: ReturnType<typeof resolveCodesteadPaths>): string {
+  // codesteadDir = <home>/.codestead → parent is <home>.
+  return paths.codesteadDir.replace(/[/\\]\.codestead$/, '');
 }
 
 /** Real `ps` sweep (read-only; PS_ARGS pinned in signals/ps.ts). */

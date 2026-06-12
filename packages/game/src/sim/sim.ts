@@ -20,7 +20,12 @@
  *   - syncPlayer(player) — movement is render-side (§1.6); the scene must push
  *     tile/facing into the sim so serialize() persists the real position.
  */
-import type { RestorableSaveDoc, RestorableSaveDocV2, SaveQuests } from '@codestead/shared';
+import type {
+  QuestReward,
+  RestorableSaveDoc,
+  RestorableSaveDocV2,
+  SaveQuests,
+} from '@codestead/shared';
 
 import { checkAchievements } from './achievements.js';
 import {
@@ -57,6 +62,7 @@ import { chooseProfession, markProfessionHintShownInPlace } from './profession.j
 import { bumpCounterInPlace, effectiveLevel } from './leveling.js';
 import { runNight } from './night-update.js';
 import { clearResourceNode, pickup, refreshPickups } from './pickups.js';
+import { grantQuestReward, recordNoteWritten } from './quest-reward.js';
 import { getTile, tilledCapForLevel, tilledCount } from './tiles.js';
 import { advanceMinutes as advanceClock, rngFromSeed, rollWeather, timeView } from './time.js';
 import type {
@@ -131,6 +137,25 @@ export interface SimApi {
    * (idempotent counter-as-flag, same precedent as markIntroLetterRead).
    */
   markProfessionHintShown(): void;
+
+  /**
+   * M4 quest reward grant (PRD 05 §K; A9). Idempotently credits a daemon-issued
+   * reward keyed on questId (grantedQuestIds) — reconnect replays / save imports
+   * never double-credit. Runs the achievement sweep so #19 智者 lights up, and
+   * returns the gold/level/unlock events (GoldChanged + any FarmLevelUp +
+   * AchievementUnlocked) so the UI can celebrate; an already-granted questId
+   * returns [] and changes nothing. The reward is sim-side: quest gold goes to
+   * the wallet via the same faucet as achievements, never the shipping bin.
+   */
+  applyQuestReward(questId: string, reward: QuestReward): SimEvent[];
+
+  /**
+   * M4 thinking-note record (PRD 05 §K; #20 思考的痕迹 predicate). Idempotently
+   * bumps `notesWritten` keyed on noteRef, decoupled from the reward grant
+   * (§11-E11 — a note may land while the reward is withheld). Runs the sweep so
+   * #20 lights up and returns any resulting AchievementUnlocked events.
+   */
+  recordQuestNote(noteRef: string): SimEvent[];
 }
 
 /**
@@ -422,6 +447,26 @@ function makeSim(
       markProfessionHintShownInPlace(next);
       state = next;
       emit(sweepAchievements()); // counter moved outside dispatch — keep the sweep contract
+    },
+    applyQuestReward(questId: string, reward: QuestReward): SimEvent[] {
+      const result = grantQuestReward(state, quests, questId, reward);
+      if (!result.granted) return []; // idempotent no-op (already granted) — UI shows nothing
+      state = result.state;
+      quests = result.quests;
+      // questsCompleted moved outside dispatch — run the sweep so #19 智者 fires
+      // (GDD §5.6), exactly as markIntroLetterRead does for its counter.
+      const events = [...result.events, ...sweepAchievements()];
+      emit(events);
+      return events;
+    },
+    recordQuestNote(noteRef: string): SimEvent[] {
+      const result = recordNoteWritten(state, quests, noteRef);
+      if (!result.recorded) return []; // idempotent on the ref (§11-E11 decoupling)
+      state = result.state;
+      quests = result.quests;
+      const events = sweepAchievements(); // notesWritten moved → #20 思考的痕迹 sweep
+      emit(events);
+      return events;
     },
   };
 }

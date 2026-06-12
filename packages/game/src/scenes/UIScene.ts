@@ -15,6 +15,9 @@ import { NotificationsView } from '../ui/hud/notifications-view';
 import { SessionHud } from '../ui/hud/session-hud';
 import { TopRightPanel } from '../ui/hud/top-right-panel';
 import { NotificationsModel } from '../ui/notifications';
+import { createInitialQuestState } from '../quest/quest-store';
+import { QuestDialogue } from '../ui/quest/quest-dialogue';
+import { QuestHud } from '../ui/quest/quest-hud';
 import type { Panel, UiHost } from '../ui/panels/host';
 import { AchievementsPanel } from '../ui/panels/achievements-panel';
 import { BuildCatalogPanel, type BuildTab } from '../ui/panels/build-catalog-panel';
@@ -29,6 +32,7 @@ import { PauseMenuPanel } from '../ui/panels/pause-menu';
 import { ProcessingPanel } from '../ui/panels/processing-panel';
 import { ProfessionPanel } from '../ui/panels/profession-panel';
 import { ReadingPanel } from '../ui/panels/reading-panel';
+import { QuestSettingsPanel } from '../ui/panels/quest-settings-panel';
 import { SessionSettingsPanel } from '../ui/panels/session-settings-panel';
 import { SettingsPanel } from '../ui/panels/settings-panel';
 import { ShippingBinPanel } from '../ui/panels/shipping-bin-panel';
@@ -73,6 +77,12 @@ export interface UiSceneApi {
   openSign(signId: string): void;
   /** Blocked-reason toast from the world layer (e.g. 背包已满 on harvest). */
   toastText(text: string): void;
+  /** M4: open the villager quest dialogue (E on a 💬 villager — §6.1/§6.2). */
+  openQuestDialogue(): void;
+  /** M4: read the QuestStore pending npcId so the world floats the 💬 bubble. */
+  pendingQuestNpcId(): string | null;
+  /** M4: subscribe to QuestStore changes (world bubble sync). Returns unsubscribe. */
+  onQuestChange(listener: () => void): () => void;
 }
 
 /**
@@ -98,6 +108,9 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
   private feedbackView: FeedbackView | null = null;
   /** M2 session HUD (ruling A-9 rect (4,4)–(156,150)); independent of the sim. */
   private sessionHud: SessionHud | null = null;
+  /** M4 villager-quest client (store + WS) and the four-屏 dialogue render shell. */
+  private questHud: QuestHud | null = null;
+  private questDialogue: QuestDialogue | null = null;
   private unsubscribeSim: (() => void) | null = null;
   private topOpenedAt = -Infinity;
   private host!: UiHost;
@@ -128,12 +141,44 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       playSound: () => this.ctx?.audio?.play(SFX.sessionChime, { volume: 0.4 }),
     });
 
+    // M4 villager-quest client (ai-quests §3.5/§6): the store rides a SECOND WS
+    // connection (M2 HUD untouched). A questReward grants gold/XP through the sim
+    // (idempotent on questId, §K/A9); an answered quest records a thinking note
+    // (#20). Zero-disturbance: an offer only floats a 💬 bubble — the dialogue opens
+    // only on the player's E (handled in WorldScene → openQuestDialogue).
+    this.questHud = new QuestHud({
+      grantReward: (questId, reward) => {
+        // The sim emits GoldChanged/FarmLevelUp/AchievementUnlocked through its own
+        // listener set, which this scene is already subscribed to (ctx.sim.on) — so
+        // the return value is intentionally discarded (no double-handling).
+        if (reward !== null) this.ctx?.sim.applyQuestReward(questId, reward);
+      },
+      recordNote: (noteRef) => {
+        this.ctx?.sim.recordQuestNote(noteRef);
+      },
+      playArrivalSound: () => this.ctx?.audio?.play(SFX.sessionChime, { volume: 0.3 }),
+    });
+    this.questDialogue = new QuestDialogue(this, {
+      state: () => this.questHud?.store.getState() ?? createInitialQuestState(),
+      emit: (event) => this.questHud?.dispatchUi(event),
+      pause: (on) => {
+        if (on) this.ctx?.pause.add('dialog');
+        else this.ctx?.pause.remove('dialog');
+      },
+      reducedMotion,
+      playRewardSfx: () => this.playSfx(SFX.coins),
+    });
+    // World bubble + dialogue re-render on every store change.
+    this.questHud.store.subscribe(() => this.questDialogue?.sync());
+
     this.host = {
       scene: this,
       ctx,
       settings: this.settingsStore,
       // Settings page / day-summary surface of the session HUD (D6, US32/33/39/40).
       sessionHud: this.sessionHud,
+      // 村民与 AI 任务 settings page + day-summary 预告 surface (ai-quests §6.3/§6.4).
+      questHud: this.questHud,
       state: () => ctx.sim.state,
       dispatch: (command) => this.dispatch(command),
       toast: (key, params) => this.toastText(t(key, params)),
@@ -200,6 +245,10 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       this.feedbackView?.clear();
       this.sessionHud?.destroy();
       this.sessionHud = null;
+      this.questDialogue?.destroy();
+      this.questDialogue = null;
+      this.questHud?.destroy();
+      this.questHud = null;
       this.closeAll();
     });
 
@@ -312,7 +361,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     }
   };
 
-  override update(time: number): void {
+  override update(time: number, delta: number): void {
     if (!this.ctx) return;
     const state = this.ctx.sim.state;
     this.topRight?.update(state, time);
@@ -320,6 +369,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     this.notificationsView?.update(time);
     this.feedbackView?.update(); // flush AFTER hotbar.update so landings target fresh slots
     this.sessionHud?.update(); // M2 session HUD (no-op while hidden, US23)
+    this.questDialogue?.update(delta); // M4 typewriter (no-op while no dialogue is open)
   }
 
   // ---- UiSceneApi (world-layer routing surface) ----
@@ -361,6 +411,31 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
 
   toastText(text: string): void {
     this.notifications.toast(text, this.time.now);
+  }
+
+  // ---- M4 villager-quest surface (world layer routes E here) ----
+
+  /**
+   * E on a 💬 villager (§6.1/§6.2): open the dialogue at the opener屏. No-op when
+   * there is no pending quest, when a panel/night transition is active, or when the
+   * dialogue is already open. Opening pauses game time via the dialogue's own
+   * `dialog` pause source (GDD §4.3).
+   */
+  openQuestDialogue(): void {
+    if (!this.ctx || this.nightTransition || this.stack.depth() > 0) return;
+    if (this.questDialogue?.isOpen()) return;
+    if (this.questHud?.store.getState().pending === null) return;
+    this.questHud?.dispatchUi({ kind: 'openDialogue' });
+  }
+
+  /** The npcId carrying a pending quest, or null — the world floats the 💬 bubble. */
+  pendingQuestNpcId(): string | null {
+    return this.questHud?.store.getState().pending?.npcId ?? null;
+  }
+
+  /** Subscribe to QuestStore changes so the world bubble tracks `pending` (§6.1). */
+  onQuestChange(listener: () => void): () => void {
+    return this.questHud?.store.subscribe(() => listener()) ?? ((): void => undefined);
   }
 
   // ---- stack management (invariant: depth > 0 ⇔ UI pause sources active) ----
@@ -433,6 +508,8 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
         return new SettingsPanel(this.host);
       case 'sessionSettings': // 设置 → 会话面板 (M2, hud-sessions §9/§12-D6)
         return new SessionSettingsPanel(this.host);
+      case 'questSettings': // 设置 → 村民与 AI 任务 (M4, ai-quests §6.4)
+        return new QuestSettingsPanel(this.host);
       case 'achievements':
         return new AchievementsPanel(this.host); // M1.5 成就 tab + M3 paging (PRD 04 §I)
       case 'keysHelp':
@@ -608,6 +685,13 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
 
   private onKeyDown(event: KeyboardEvent): void {
     if (!this.ctx) return;
+    // M4: an open quest dialogue captures ALL keyboard (§6.2 — WASD/E/Esc never reach
+    // the world or the panel stack while the villager is talking).
+    if (this.questDialogue?.isOpen()) {
+      event.preventDefault();
+      this.questDialogue.handleKey(event);
+      return;
+    }
     const top = this.panels[this.panels.length - 1];
     if (top) {
       if (this.time.now - this.topOpenedAt < PANEL_KEY_GRACE_MS) return;

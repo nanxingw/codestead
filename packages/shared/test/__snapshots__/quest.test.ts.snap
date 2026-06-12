@@ -1,0 +1,94 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`z.toJSONSchema(QuestGenSchema) is stable (fed to --json-schema) > matches the pinned snapshot so schema drift is loud 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "maxLength": 400,
+      "minLength": 20,
+      "type": "string",
+    },
+    "closer": {
+      "maxLength": 80,
+      "minLength": 4,
+      "type": "string",
+    },
+    "contextEcho": {
+      "maxLength": 120,
+      "type": "string",
+    },
+    "kind": {
+      "enum": [
+        "decision",
+        "reflection",
+      ],
+      "type": "string",
+    },
+    "npcId": {
+      "enum": [
+        "npc_carpenter",
+        "npc_grocer",
+        "npc_keeper",
+      ],
+      "type": "string",
+    },
+    "opener": {
+      "maxLength": 120,
+      "minLength": 10,
+      "type": "string",
+    },
+    "options": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": [
+              "a",
+              "b",
+              "c",
+              "d",
+            ],
+            "type": "string",
+          },
+          "label": {
+            "maxLength": 60,
+            "minLength": 2,
+            "type": "string",
+          },
+          "tradeoff": {
+            "maxLength": 80,
+            "minLength": 2,
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "label",
+          "tradeoff",
+        ],
+        "type": "object",
+      },
+      "maxItems": 4,
+      "minItems": 2,
+      "type": "array",
+    },
+    "title": {
+      "maxLength": 24,
+      "minLength": 4,
+      "type": "string",
+    },
+  },
+  "required": [
+    "npcId",
+    "kind",
+    "title",
+    "opener",
+    "body",
+    "closer",
+    "contextEcho",
+  ],
+  "type": "object",
+}
+`;

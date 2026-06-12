@@ -12,6 +12,7 @@
 import type Phaser from 'phaser';
 
 import { formatDayEndSessionLine, stateCounts } from '../../hud/store';
+import { questSettlementLine } from '../../quest/quest-settlement';
 import { getCropDef } from '../../sim/data/crops';
 import { XP_THRESHOLDS } from '../../sim/data/constants';
 import { levelForXp } from '../../sim/leveling';
@@ -120,6 +121,11 @@ export class DaySummaryPanel implements Panel {
         ? t('summary.weather_next_rain')
         : t('summary.weather_next_sunny'),
     );
+    // 明日预告 ▸ pending villager quest (ai-quests §6.3/§3.5): a calm append-only
+    // line — NEVER a popup — shown iff a quest is currently OFFERED. Read from the
+    // QuestHud (analogous to the 会话一行 below); absent host/quest ⇒ no line.
+    const questLine = questSettlementLine(this.host.questHud?.pendingQuest() ?? null, t);
+    if (questLine !== null) tomorrow.push(questLine);
     this.section(y, t('summary.tomorrow'), tomorrow);
 
     // 会话一行 (hud-sessions §4.6 / PRD 03 US33): calm statement of the live

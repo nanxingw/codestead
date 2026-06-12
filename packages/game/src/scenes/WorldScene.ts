@@ -11,7 +11,7 @@
  * landed yet, the scene degrades (generated ground, FALLBACK_MAP_META, movement-only
  * mode) instead of crashing — every degradation logs a console warning.
  */
-import type { RestorableSaveDocV2 } from '@codestead/shared';
+import type { NpcId, RestorableSaveDocV2 } from '@codestead/shared';
 import Phaser from 'phaser';
 
 import { MAPS, SFX, SFX_M3, TEXTURES } from '../AssetKeys';
@@ -24,6 +24,7 @@ import { cropItemId, type ItemId } from '../sim/data/items';
 import { isOldVine } from '../sim/farming';
 import { canAdd } from '../sim/inventory';
 import { effectiveLevel } from '../sim/leveling';
+import { NPCS_BY_ID, pickChatter, type ChatterFarmView } from '../quest/npc-data';
 import type { SimApi } from '../sim/sim';
 import { newGameSim } from '../sim/sim';
 import { getTile, nextCapLevel, tillBlockedByCap } from '../sim/tiles';
@@ -46,6 +47,7 @@ import { REGISTRY_KEYS, WORLD_EVENTS, type InteractablePayload } from '../world/
 import { FarmlandView } from '../world/farmland-view';
 import { InputStack, type Dir } from '../world/input-stack';
 import { buildMapMeta, FALLBACK_MAP_META, type TiledMapData } from '../world/map-meta';
+import { NpcView } from '../world/npc';
 import { PALETTE } from '../world/palette';
 import { PickupsView } from '../world/pickups-view';
 import { PlayerController } from '../world/player';
@@ -88,6 +90,10 @@ export class WorldScene extends Phaser.Scene {
   private structuresView!: StructuresView;
   /** M3 PLACING controller (§8.3) — registered on the registry for the UI panels. */
   private buildController!: BuildController;
+  /** M4 villagers (站桩 + idle + 💬 bubble, §1.3/§6.1); null in degraded movement-only mode. */
+  private npcView: NpcView | null = null;
+  /** Unsubscribe from the UIScene QuestStore (drives the bubble); cleared on shutdown. */
+  private unsubQuest: (() => void) | null = null;
 
   private readonly inputStack = new InputStack();
   private readonly repeater = new HoldRepeater();
@@ -229,6 +235,8 @@ export class WorldScene extends Phaser.Scene {
     this.lastNightHandledDay = 0;
     this.pendingUnlockFx = [];
     this.letterGlow = null; // destroyed with the scene's display list on shutdown
+    this.npcView = null;
+    this.unsubQuest = null;
   }
 
   private buildMap(): void {
@@ -337,6 +345,10 @@ export class WorldScene extends Phaser.Scene {
     this.rangePreview = new RangePreview(this);
     this.upgradeFx = new UpgradeFx(this, () => this.reducedMotionActive());
     this.structuresView = new StructuresView(this, () => this.reducedMotionActive());
+    // M4 villagers (§1.3): three NPCs at the map npc_anchors, fallback-safe (synth
+    // placeholders until the Kenney CC0 atlas lands). The 💬 bubble is driven from
+    // the UIScene QuestStore in launchUi() once the UI overlay is live.
+    this.npcView = new NpcView(this, this.mapMeta);
     // PLACING controller (§8.3): UI panels reach it via build-bridge; all closures
     // read live scene state, so construction order does not matter.
     this.buildController = new BuildController(this, {
@@ -509,6 +521,23 @@ export class WorldScene extends Phaser.Scene {
     this.registry.set(UI_CONTEXT_REGISTRY_KEY, ctx);
     this.scene.launch('UI', ctx);
     this.uiLive = true;
+    // M4: bind the 💬 bubble to the UIScene QuestStore once the overlay's create()
+    // has run (next tick — UIScene constructs the QuestHud there). The world floats a
+    // bubble over whichever villager owns the pending quest (§6.1).
+    this.time.delayedCall(0, () => this.bindQuestBubble());
+  }
+
+  /** Subscribe the NPC bubble to the UIScene QuestStore (§6.1); idempotent + safe. */
+  private bindQuestBubble(): void {
+    if (!this.npcView) return;
+    const ui = this.scene.get('UI') as unknown as UiSceneApi | null;
+    if (!ui?.onQuestChange) return;
+    const apply = (): void => {
+      const id = ui.pendingQuestNpcId();
+      this.npcView?.setPendingNpc(id as Parameters<NpcView['setPendingNpc']>[0]);
+    };
+    this.unsubQuest = ui.onQuestChange(apply);
+    apply(); // reflect any quest already present (reconnect snapshot, §11-E3)
   }
 
   /** Toast on the UI overlay (blocked reasons / save hints); no-op in degraded mode. */
@@ -822,6 +851,8 @@ export class WorldScene extends Phaser.Scene {
   private isActionableTile(tile: TilePos, itemId: ItemId | null): boolean {
     const key = `${tile.x},${tile.y}`;
     if (this.interactableByTile.has(key)) return true;
+    // M4: a villager is an E-target (chatter, or the quest dialogue when 💬 — §6.1).
+    if (this.npcView?.npcAtTile(tile) != null) return true;
     const spotId = this.pickupSpotByTile.get(key);
     if (spotId !== undefined && this.isPickupAvailable(spotId)) return true;
     // M3 §8.1: a clearable tree/boulder with the matching tool selected is an E-target.
@@ -1117,6 +1148,15 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
+    // M4: E on a villager (§6.1). With a pending quest for that NPC → open the
+    // dialogue (game time pauses, §4.3); otherwise play a local chatter line (no
+    // reward, no count — pure ambience, §1.4).
+    const npcId = this.npcView?.npcAtTile(tile);
+    if (npcId != null) {
+      this.handleNpcInteract(npcId);
+      return;
+    }
+
     const spotId = this.pickupSpotByTile.get(key);
     if (spotId !== undefined && this.sim && this.isPickupAvailable(spotId)) {
       this.sim.dispatch({ type: 'pickup', spotId });
@@ -1225,6 +1265,46 @@ export class WorldScene extends Phaser.Scene {
     this.time.delayedCall(ACTION_TIMING.EFFECT_AT_MS, () => {
       this.sim?.dispatch({ type: 'interact', tile, itemId });
     });
+  }
+
+  /**
+   * E on a villager (§6.1/§1.4): if that NPC carries the pending quest, open the
+   * dialogue (UIScene owns it — game time pauses); otherwise speak a local chatter
+   * line (zero AI, zero reward, zero count — pure ambience). The player faces the
+   * NPC either way (E/click both land here, §1.7).
+   */
+  private handleNpcInteract(npcId: NpcId): void {
+    if (!this.sim) return;
+    this.player.facing = facingToward(
+      this.player.currentTile,
+      this.npcTileOf(npcId) ?? this.player.currentTile,
+      this.player.facing,
+    );
+    const ui = this.scene.get('UI') as unknown as UiSceneApi | null;
+    if (ui && ui.pendingQuestNpcId() === npcId) {
+      ui.openQuestDialogue();
+      return;
+    }
+    // Chatter: gate lines against the read-only farm view (§1.4).
+    const line = pickChatter(npcId, this.chatterFarmView(), Math.random());
+    if (line !== null) this.uiToast(line);
+  }
+
+  /** The foot tile a villager stands on (for facing), or null when unplaced. */
+  private npcTileOf(npcId: NpcId): TilePos | null {
+    const anchor = this.mapMeta.npcAnchors.find((a) => a.id === NPCS_BY_ID.get(npcId)?.anchorId);
+    return anchor ? anchor.tile : null;
+  }
+
+  /** Read-only farm view feeding the chatter gates (§1.4: rain/mature/level). */
+  private chatterFarmView(): ChatterFarmView {
+    const state = this.sim?.state;
+    if (!state) return { rainedLastNight: false, anyCropMature: false, highLevel: false };
+    return {
+      rainedLastNight: state.time.weatherToday === 'rain',
+      anyCropMature: Object.values(state.farm.tiles).some((tt) => tt?.crop?.mature === true),
+      highLevel: effectiveLevel(state.progress.xp) >= 6,
+    };
   }
 
   /** Fixed interactables route to UI events, never into the farming sim (GDD §1.7). */
@@ -1444,6 +1524,10 @@ export class WorldScene extends Phaser.Scene {
     this.sfx = null;
     this.buildController.destroy();
     this.structuresView.destroy();
+    this.unsubQuest?.();
+    this.unsubQuest = null;
+    this.npcView?.destroy();
+    this.npcView = null;
     this.saves?.dispose();
     for (const fn of this.windowCleanups) fn();
     this.windowCleanups.length = 0;

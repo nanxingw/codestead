@@ -1,0 +1,8 @@
+{"type":"ai-title","title":"A session with broken lines"}
+this is not json at all and must be skipped
+{"type":"last-prompt","text":"the last good prompt before the garbage"}
+{"type":"user","userType":"external","message":{"role":"user","content":"a valid external user message"}}
+{ "type": "user", "userType": "external", "message": { "role": "user", "content": [ unterminated
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"a valid assistant reply after the bad line"}]}}
+{"type":"user","userType":"internal","message":{"role":"user","content":"internal user message — NOT external, must be dropped"}}
+{"type":"user","userType":"external","message":{"role":"user","content":[{"type":"text","text":"structured (non-string) external content — dropped per §4.2 string-only rule"}]}}

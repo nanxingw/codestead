@@ -34,6 +34,7 @@ import {
   HandshakeResponseSchema,
   PROTOCOL_VERSION,
   handshakeUrl,
+  type ClientMessage,
   type HandshakeResponse,
   type ServerMessage,
   ServerMessageSchema,
@@ -74,6 +75,13 @@ export interface WsClientDeps {
   readonly dispatch: (event: ConnectionEvent) => void;
   /** Validated frames only; the client already dropped malformed ones. */
   readonly onServerMessage: (message: ServerMessage, at: number) => void;
+  /**
+   * M4: fired each time a connection reaches LIVE (snapshot received). The quest
+   * host uses it to re-emit `clientPrefs` on every (re)connect so the daemon's
+   * stricter-of merge always has the current preference (ai-quests §4.7). Optional
+   * — the M2 HUD wiring omits it.
+   */
+  readonly onLive?: () => void;
 }
 
 export interface WsClient {
@@ -81,6 +89,13 @@ export interface WsClient {
   start(): void;
   /** Tear down socket + timers (page hide does NOT stop it — §8.3: WS keeps running while the tab is hidden). */
   stop(): void;
+  /**
+   * M4: queue an outbound client frame (questAnswer / questDismiss / clientPrefs,
+   * §4.7). Frames sent before the socket is LIVE are buffered and flushed once the
+   * snapshot lands; frames sent while disconnected wait for the next LIVE edge.
+   * `auth` is the client's own concern and must NOT be sent through here.
+   */
+  send(message: ClientMessage): void;
 }
 
 /** Per-port probe budget; misses must be quick AND silent (gate §8.2). */
@@ -126,6 +141,8 @@ export function createWsClient(deps: WsClientDeps): WsClient {
   let settled = false;
   let sawHeartbeat = false;
   let sawSnapshot = false;
+  /** Outbound client frames queued until the socket is LIVE (post-snapshot, §4.7). */
+  const outbound: ClientMessage[] = [];
 
   function clearTimer(id: number | null): null {
     if (id !== null) deps.timers.clear(id);
@@ -206,9 +223,30 @@ export function createWsClient(deps: WsClientDeps): WsClient {
       sawSnapshot = true;
       failures = 0; // reaching LIVE resets the ladder (§8.1)
       connectTimer = clearTimer(connectTimer);
+      // LIVE edge: flush any buffered client frames, then let the quest host
+      // re-emit clientPrefs for the stricter-of merge (§4.7). Order matters only
+      // in that the daemon must be authed first — which the snapshot guarantees.
+      flushOutbound();
+      deps.onLive?.();
     }
     deps.onServerMessage(parsed.data, now());
     armWatchdog();
+  }
+
+  /** Send all buffered client frames once the socket is LIVE (§4.7). */
+  function flushOutbound(): void {
+    if (socket === null || !sawSnapshot) return;
+    while (outbound.length > 0) {
+      const message = outbound.shift();
+      if (message === undefined) break;
+      try {
+        socket.send(JSON.stringify(message));
+      } catch {
+        // Socket died mid-flush: requeue and stop; the next LIVE edge retries.
+        outbound.unshift(message);
+        break;
+      }
+    }
   }
 
   function openSocket(handshake: HandshakeResponse | null): void {
@@ -269,6 +307,12 @@ export function createWsClient(deps: WsClientDeps): WsClient {
       retryTimer = clearTimer(retryTimer);
       settled = true;
       teardownSocket();
+    },
+    send(message: ClientMessage): void {
+      // Buffer first, then flush — so a frame sent before LIVE is delivered on the
+      // snapshot edge, and a frame sent while LIVE goes out immediately (§4.7).
+      outbound.push(message);
+      flushOutbound();
     },
   };
 }

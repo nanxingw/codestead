@@ -30,6 +30,7 @@ export class SettingsPanel implements Panel {
   private mutedButton!: TextButton;
   private rmButton!: TextButton;
   private sessionsButton!: TextButton;
+  private questsButton!: TextButton;
   private fileInput: HTMLInputElement | null = null;
   private importStatus!: Phaser.GameObjects.Text;
 
@@ -95,8 +96,15 @@ export class SettingsPanel implements Panel {
     this.sessionsButton.setDepth(DEPTH.panel + 1);
     this.track(this.sessionsButton);
     y += 16;
-    this.label(x, y, t('settings.quests_section'), PALETTE.ui.textDim);
-    this.label(valueX - 60, y, t('settings.quests_badge'), PALETTE.ui.textDim);
+    // 村民与 AI 任务 entry (M4, ai-quests §6.4): a sub-page button — the same
+    // pattern as the 会话面板 row — replacing the old static 「M4 可用」 badge.
+    this.label(x, y, t('settings.quests_section'));
+    this.questsButton = new TextButton(scene, valueX - 108, y - 2, t('settings.quests_open'), {
+      width: 108,
+      onClick: () => this.host.openChild('questSettings'),
+    });
+    this.questsButton.setDepth(DEPTH.panel + 1);
+    this.track(this.questsButton);
     y += 20;
 
     // ---- save import / export (GDD §10.6; storage stream implements SaveTransfer) ----

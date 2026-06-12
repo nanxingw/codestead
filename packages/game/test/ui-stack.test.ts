@@ -42,6 +42,24 @@ describe('UiStackModel', () => {
     expect(stack.push('settings')).toBe(false);
   });
 
+  it('nests 会话面板 and 村民与 AI 任务 sub-pages on settings (and nothing else)', () => {
+    const stack = new UiStackModel();
+    stack.push('pauseMenu');
+    stack.push('settings');
+    // 设置 → 村民与 AI 任务 (M4, ai-quests §6.4) nests on settings.
+    expect(stack.push('questSettings')).toBe(true);
+    expect(stack.top()).toBe('questSettings');
+    expect([...stack.sources()]).toEqual(['menu']); // sub-page is still a 'menu' source
+    expect(stack.pop()).toBe('questSettings');
+    // 会话面板 (M2) likewise nests on settings.
+    expect(stack.push('sessionSettings')).toBe(true);
+    expect(stack.pop()).toBe('sessionSettings');
+    // questSettings does NOT open from an empty stack's non-settings parent.
+    stack.clear();
+    stack.push('inventory');
+    expect(stack.push('questSettings')).toBe(false);
+  });
+
   it('maps panels onto the §2.4 pause-source vocabulary', () => {
     const stack = new UiStackModel();
     stack.push('pauseMenu');

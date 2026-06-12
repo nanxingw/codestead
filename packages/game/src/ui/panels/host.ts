@@ -5,9 +5,12 @@
  */
 import type Phaser from 'phaser';
 
+import type { Quest } from '@codestead/shared';
+
 import type { SfxKey } from '../../AssetKeys';
 import type { HudSettings } from '../../hud/settings';
 import type { HudState } from '../../hud/types';
+import type { QuestPrefs } from '../../quest/quest-store';
 import type { SimCommand, SimEvent, WorldState } from '../../sim/types';
 import type { UiContext } from '../context';
 import type { SettingsStore } from '../settings-store';
@@ -25,12 +28,35 @@ export interface SessionHudHandle {
   hudState(): Readonly<HudState>;
 }
 
+/**
+ * Narrow surface of the villager-quest HUD exposed to panels (ai-quests §6.4 / §6.3).
+ * The 村民与 AI 任务 settings page reads/writes the game-scope quest prefs (villager
+ * tasks toggle, 出题间隔档) + the arrival-sound preference — all persisted to
+ * localStorage `codestead.quests.v1`, NEVER the farm save — and the day-summary
+ * panel reads the single pending quest for the §6.3 明日预告 line. Implemented by
+ * ui/quest/quest-hud.ts (QuestHud). Absent in the passive M0 shell and panel tests.
+ */
+export interface QuestHudHandle {
+  /** Game-scope quest prefs (villager-tasks enabled + 出题间隔档). */
+  prefs(): Readonly<QuestPrefs>;
+  /** Patch the game-scope prefs (persists + re-emits clientPrefs, §4.7). */
+  updatePrefs(patch: Partial<QuestPrefs>): void;
+  /** Arrival-sound preference (§3.5 ≤0.3s 轻音). */
+  arrivalSoundOn(): boolean;
+  setArrivalSound(on: boolean): void;
+  /** The single OFFERED quest, or null (global ≤1) — the §6.3 day-summary 预告 reads it. */
+  pendingQuest(): Quest | null;
+}
+
 export interface UiHost {
   readonly scene: Phaser.Scene;
   readonly ctx: UiContext;
   readonly settings: SettingsStore;
   /** Absent only in the passive M0-compatible shell (and in panel tests). */
   readonly sessionHud?: SessionHudHandle;
+  /** M4 villager-quest surface (settings page + day-summary 预告); absent in the
+   *  passive shell and panel tests (ai-quests §6.3/§6.4). */
+  readonly questHud?: QuestHudHandle;
   state(): Readonly<WorldState>;
   dispatch(command: SimCommand): SimEvent[];
   /** Blocked-reason toast (string key from strings.ts, GDD §6.7 toast discipline). */

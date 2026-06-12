@@ -9,4 +9,4 @@ export * from './theme.js';
 export * from './save.js';
 export * from './save-v2.js';
 export * from './save-migrations.js';
-// quest.ts (M4, PRD 05) is a placeholder — nothing to export yet.
+export * from './quest.js';

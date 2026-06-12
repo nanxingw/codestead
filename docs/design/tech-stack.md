@@ -153,7 +153,7 @@ codestead/
 3. **生成**：`spawn('claude', ['-p', ...])`，参数：`--settings '{"disableAllHooks":true}'`（防自激回环）、`--strict-mcp-config`、`--output-format json`、`--json-schema <由 shared 的 Quest zod schema 经 z.toJSONSchema 生成>`、`--max-turns 4`、`--max-budget-usd 0.20`、`--no-session-persistence`、`--allowedTools "Read"`、`--model haiku --fallback-model sonnet`；daemon 自管 90s SIGTERM → 5s SIGKILL；启动时 `claude --version` 探测 + 关键 flag feature-detect，不可用则优雅关闭 M4 功能而非崩溃；
 4. **校验与推送**：取返回 JSON 的 `structured_output`，用**同一个** zod schema `safeParse` 后封装为 `questOffer` 推给游戏 NPC 系统；逐次记账 `total_cost_usd`；
 5. **回路**：玩家在游戏内作答 → `questAnswer` 回传 daemon → 思考笔记落盘 `~/.codestead/notes/`（纯本地，未来可回填对应会话）→ 发放游戏内奖励。注：M4 固定单轮，不实现 NPC 多轮追问；`--resume` 留作 M5 后实验项（裁决见 ai-quests.md 定稿一致性声明第 2 条 / §15 问题 2）；
-6. **隔离**：关卡生成的 headless 会话被 ps 信号源的 tty 规则 + 启动参数标记双重过滤，不上 HUD、不参与状态机。
+6. **隔离**：关卡生成的 headless 会话被 ps 信号源的 tty 规则 + 启动参数标记双重过滤，不上 HUD、不参与状态机。启动参数标记 = `codestead-quest`（`signals/ps.ts` 的 `QUEST_LAUNCH_ARG_MARKER`，backlog E-3）；M4 实现把它作为 CLI 忽略的自定义键嵌入 `--settings` JSON 值（即 `--settings '{"disableAllHooks": true, "codestead-quest": true}'`），保证标记必然出现在 spawn argv 中、ps 第二腿过滤永远命中，而不新增 CLI 可能拒绝的 flag（详见 ai-quests §4.5）。
 
 ---
 

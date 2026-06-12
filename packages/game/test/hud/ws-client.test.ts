@@ -131,6 +131,7 @@ function harness(
     now: () => timers.now,
     dispatch: (event) => events.push(event),
     onServerMessage: (message) => messages.push(message),
+    ...('onLive' in over ? { onLive: over.onLive } : {}),
     ...('prober' in over ? { prober: over.prober! } : {}),
   });
   return h;
@@ -302,6 +303,76 @@ describe('createWsClient — watchdogs & reconnect', () => {
     await h.flush();
     expect(h.events.length).toBe(before);
     expect(h.sockets).toHaveLength(1);
+  });
+});
+
+describe('createWsClient — M4 outbound send + onLive (§4.7)', () => {
+  const clientPrefs = {
+    v: 1 as const,
+    type: 'clientPrefs' as const,
+    payload: { quests: { enabled: true, minIntervalRealMinutes: 30 as const } },
+  };
+  const reachLive = async (h: Harness): Promise<FakeSocket> => {
+    h.client.start();
+    await h.flush();
+    const ws = h.sockets[0];
+    ws.open();
+    ws.frame(hello);
+    ws.frame(snapshot);
+    return ws;
+  };
+
+  it('buffers a frame sent before LIVE and flushes it on the snapshot edge', async () => {
+    const h = harness();
+    h.client.start();
+    await h.flush();
+    const ws = h.sockets[0];
+    ws.open();
+    // Sent before snapshot: not on the wire yet (only the auth frame is).
+    h.client.send(clientPrefs);
+    expect(ws.sent.filter((s) => s.includes('clientPrefs'))).toHaveLength(0);
+    ws.frame(hello);
+    ws.frame(snapshot);
+    // LIVE edge flushed the buffered frame.
+    expect(ws.sent.filter((s) => s.includes('clientPrefs'))).toHaveLength(1);
+  });
+
+  it('sends immediately once LIVE', async () => {
+    const h = harness();
+    const ws = await reachLive(h);
+    h.client.send(clientPrefs);
+    expect(ws.sent.at(-1)).toBe(JSON.stringify(clientPrefs));
+  });
+
+  it('fires onLive on every snapshot edge (so the quest host re-emits clientPrefs)', async () => {
+    let liveCount = 0;
+    const h = harness({ onLive: () => (liveCount += 1) });
+    const ws = await reachLive(h);
+    expect(liveCount).toBe(1);
+    // A reconnect (close → retry → snapshot) fires onLive again.
+    ws.onclose?.();
+    h.timers.advance(1_000);
+    await h.flush();
+    const ws2 = h.sockets[1];
+    ws2.open();
+    ws2.frame(hello);
+    ws2.frame(snapshot);
+    expect(liveCount).toBe(2);
+  });
+
+  it('a frame queued while disconnected survives to the next LIVE edge', async () => {
+    const h = harness();
+    const ws = await reachLive(h);
+    ws.onclose?.(); // drop the connection
+    h.client.send(clientPrefs); // queued while down — no socket to take it
+    h.timers.advance(1_000);
+    await h.flush();
+    const ws2 = h.sockets[1];
+    expect(ws2.sent.filter((s) => s.includes('clientPrefs'))).toHaveLength(0); // not yet
+    ws2.open();
+    ws2.frame(hello);
+    ws2.frame(snapshot);
+    expect(ws2.sent.filter((s) => s.includes('clientPrefs'))).toHaveLength(1); // flushed
   });
 });
 

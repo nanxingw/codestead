@@ -233,8 +233,8 @@ describe('idempotence & repeat-unlock protection (PRD 02 US16)', () => {
   });
 });
 
-describe('milestone gate — M3 rows are live, M4 rows stay locked in the M3 build (§0.4)', () => {
-  it('fully-satisfied M3 predicates fire in §5.6 order; M4 (#19/#20) stay inert', () => {
+describe('milestone gate — M3 AND M4 rows are live in the M4 build (§0.4 / PRD 05 US75)', () => {
+  it('fully-satisfied M3+M4 predicates fire in §5.6 order; #19/#20 now light up', () => {
     const state = stateWith({
       xp: XP_CAP, // satisfies #21 farm_master AND #22 mastery predicates
       counters: {
@@ -243,22 +243,26 @@ describe('milestone gate — M3 rows are live, M4 rows stay locked in the M3 bui
         'built:workshop': 1,
         'built:greenhouse': 1,
         sprinklersPlaced: 1,
-        questsCompleted: 5, // would satisfy #19 first_quest — must NOT unlock (M4)
-        notesWritten: 10, // would satisfy #20 notebook — must NOT unlock (M4)
+        questsCompleted: 5, // satisfies #19 first_quest — NOW unlocks (M4 build)
+        notesWritten: 10, // satisfies #20 notebook — NOW unlocks (M4 build)
       },
     });
     state.progress.profession = 'horticulturist'; // satisfies #18 signed_papers
+    // §5.6 table order: #18 signed_papers, #19 first_quest, #20 notebook, then the
+    // M3 long-line #21/#22; the M3 rows (#15~#17) precede #18 in the table.
     expect(pendingUnlocks(state).map((d) => d.id)).toEqual([
       'homestead',
       'tycoon',
       'automation_dream',
       'signed_papers',
+      'first_quest',
+      'notebook',
       'farm_master',
       'mastery',
     ]);
     const result = checkAchievements(state);
-    expect(result.state.progress.achievements).not.toContain('first_quest');
-    expect(result.state.progress.achievements).not.toContain('notebook');
+    expect(result.state.progress.achievements).toContain('first_quest');
+    expect(result.state.progress.achievements).toContain('notebook');
   });
 
   it('#21/#22 unlock with ZERO XP movement at the cap; gold lands instantly (§5.6 不变量)', () => {

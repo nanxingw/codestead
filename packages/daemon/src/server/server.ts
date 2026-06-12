@@ -54,6 +54,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   HOOKS_PATH,
   PROTOCOL_VERSION,
+  type ClientMessage,
   type HandshakeResponse,
   type ServerMessage,
   type SessionInfo,
@@ -71,6 +72,21 @@ export interface DaemonServerDeps {
   readonly onHookBody: (body: unknown, at: number) => void;
   /** Current table as wire infos, used for the post-auth snapshot. */
   readonly getSnapshot: () => SessionInfo[];
+  /**
+   * Post-auth client frames (M4: questAnswer / questDismiss / clientPrefs).
+   * Fired only for frames that pass ClientMessageSchema.safeParse AND are not the
+   * `auth` frame. The quest module is the sole consumer; omitted (M2-only boot or
+   * 总开关关闭) ⇒ post-auth frames are parsed-and-dropped exactly as before. The
+   * server never replies inline — quest responses go out via `broadcast`.
+   */
+  readonly onClientMessage?: (message: Exclude<ClientMessage, { type: 'auth' }>) => void;
+  /**
+   * Frames to send to a client immediately AFTER hello+snapshot (M4: the quest
+   * questSnapshot for connect/reconnect recovery, §5/§11-E3). Returns 0 or more
+   * frames; omitted ⇒ none. Kept separate from getSnapshot so the session HUD
+   * snapshot stays untouched.
+   */
+  readonly getPostAuthFrames?: () => ServerMessage[];
   /** Injected for tests (random port = 0 is NOT allowed in production probing). */
   readonly basePort?: number;
   readonly maxPort?: number;
@@ -327,19 +343,35 @@ export async function createDaemonServer(deps: DaemonServerDeps): Promise<Daemon
     }, AUTH_WINDOW_MS);
     authTimer.unref();
 
+    const decodeText = (data: unknown): string =>
+      Array.isArray(data)
+        ? Buffer.concat(data as Buffer[]).toString('utf8')
+        : data instanceof ArrayBuffer
+          ? Buffer.from(data).toString('utf8')
+          : (data as Buffer).toString('utf8');
+
     ws.on('message', (data, isBinary) => {
-      if (isAuthed) return; // M2 defines no post-auth client messages — ignored.
+      // Post-auth client frames (M4): parse + dispatch to the quest module via
+      // onClientMessage. Anything that is not a valid non-auth ClientMessage (or
+      // when no consumer is wired) is parsed-and-dropped — the M2 behavior.
+      if (isAuthed) {
+        if (deps.onClientMessage === undefined || isBinary) return;
+        try {
+          const parsed = ClientMessageSchema.safeParse(JSON.parse(decodeText(data)));
+          if (parsed.success && parsed.data.type !== 'auth') {
+            deps.onClientMessage(parsed.data);
+          }
+        } catch {
+          // malformed post-auth frame — dropped silently (no error frame exists)
+        }
+        return;
+      }
       clearTimeout(authTimer);
 
       let ok = false;
       if (!isBinary) {
         try {
-          const text = Array.isArray(data)
-            ? Buffer.concat(data).toString('utf8')
-            : data instanceof ArrayBuffer
-              ? Buffer.from(data).toString('utf8')
-              : data.toString('utf8');
-          const parsed = ClientMessageSchema.safeParse(JSON.parse(text));
+          const parsed = ClientMessageSchema.safeParse(JSON.parse(decodeText(data)));
           ok =
             parsed.success &&
             parsed.data.type === 'auth' &&
@@ -368,6 +400,12 @@ export async function createDaemonServer(deps: DaemonServerDeps): Promise<Daemon
         type: 'snapshot',
         payload: { sessions: deps.getSnapshot() },
       });
+      // M4: post-auth recovery frames (questSnapshot) right after the session
+      // snapshot, so a reconnecting client re-receives its single pending quest
+      // (§5/§11-E3). M2 boots omit getPostAuthFrames ⇒ nothing extra is sent.
+      if (deps.getPostAuthFrames !== undefined) {
+        for (const frame of deps.getPostAuthFrames()) send(ws, frame);
+      }
       log(`ws client authenticated (clients=${String(authed.size)})`);
     });
 

@@ -21,6 +21,7 @@ export type UiPanelId =
   | 'pauseMenu'
   | 'settings'
   | 'sessionSettings' // 设置 → 会话面板 sub-page (M2, hud-sessions §9/§12-D6)
+  | 'questSettings' // 设置 → 村民与 AI 任务 sub-page (M4, ai-quests §6.4)
   | 'keysHelp'
   | 'achievements'
   | 'daySummary'
@@ -40,6 +41,7 @@ export const PANEL_PAUSE_SOURCE: Readonly<Record<UiPanelId, PauseSource>> = {
   pauseMenu: 'menu',
   settings: 'menu',
   sessionSettings: 'menu', // 设置 → 会话面板 (M2)
+  questSettings: 'menu', // 设置 → 村民与 AI 任务 (M4)
   keysHelp: 'menu',
   achievements: 'menu', // Esc-menu 「成就」 tab (M1.5, PRD 02 US12)
   inventory: 'dialog',
@@ -62,7 +64,8 @@ export const PANEL_PAUSE_SOURCE: Readonly<Record<UiPanelId, PauseSource>> = {
 /** Panels allowed to be pushed on top of an existing panel (parent → children). */
 const NESTABLE: Readonly<Partial<Record<UiPanelId, readonly UiPanelId[]>>> = {
   pauseMenu: ['settings', 'keysHelp', 'achievements', 'codex', 'buildCatalog'],
-  settings: ['sessionSettings'], // 设置 → 会话面板 (GDD §6.5 M2 row; hud-sessions §9)
+  // 设置 → 会话面板 (M2) / 村民与 AI 任务 (M4) sub-pages (GDD §6.5; hud-sessions §9 / ai-quests §6.4).
+  settings: ['sessionSettings', 'questSettings'],
   // 拆除/搬迁确认 nests on the catalog (§8.3 demolish table confirmations).
   buildCatalog: ['buildConfirm'],
 };

@@ -277,6 +277,7 @@ claude -p "$(cat prompt-instructions.txt)" \
 - 启动时 feature-detect（`claude --version` + 关键 flag 探测），不可用则 M4 整体降级（§9），**绝不崩溃**（tech-stack 风险 #4）；
 - 每次调用记账：`~/.codestead/quests/costs.jsonl` 追加 `{ts, questId, model, totalCostUsd, durationMs, ok}`（来自返回 JSON 的 `total_cost_usd`）；
 - headless 会话经 `disableAllHooks` + ps 信号源 tty 规则双重隔离，不上 HUD、不触发自激回环（tech-stack 风险 #5）；
+- **`codestead-quest` 启动标记（backlog E-3 落实）**：ps 双重过滤的第二腿要求 spawn argv 含 `codestead-quest` 字符串。实现把该标记作为一个 CLI 忽略的自定义键嵌入 `--settings` JSON 值，即 `--settings '{"disableAllHooks": true, "codestead-quest": true}'`——既保证标记必然出现在命令行（ps `args.includes('codestead-quest')` 永远命中），又不新增 CLI 可能拒绝的 flag；`"disableAllHooks": true` 子串保持逐字不变（与 `CLAUDE_FIXED_FLAGS` 契约一致）；
 - **M4 固定单轮**：不使用 `--resume` 做多轮追问（tech-stack §4.2 第 5 步所述能力保留为 M5 后实验项，见 §15 问题 2）。
 
 ### 4.6 Quest JSON Schema（`packages/shared/src/quest.ts`，zod v4 单一事实源；取代 tech-stack §5 草案中的简化版 `Quest` interface）
