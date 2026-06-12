@@ -17,20 +17,26 @@
  * Pure: the input document is never mutated; warnings are returned for the
  * caller to surface (console.warn + gentle UI, never a scary modal).
  */
-import type { SaveDoc } from '@codestead/shared';
+import type { SaveDocV2 } from '@codestead/shared';
 
 import { CROPS_BY_ID, type CropId } from '../sim/data/crops';
 import { ITEMS_BY_ID } from '../sim/data/items';
 
 export interface SanitizeResult {
-  doc: SaveDoc;
+  doc: SaveDocV2;
   /** Human-readable downgrade notes; empty when the doc was fully known. */
   warnings: string[];
   changed: boolean;
 }
 
-/** Apply the §10.9 unknown-id downgrades. Schema-valid input only. */
-export function sanitizeSaveDoc(input: SaveDoc): SanitizeResult {
+/**
+ * Apply the §10.9 unknown-id downgrades. Schema-valid input only (v2 since M3).
+ * M3 structure LEGALITY (footprints/limits/unknown defIds) is deliberately NOT
+ * handled here — that is the sim-side import sanitiser with its 100%-refund
+ * reclaim channel (sim/building.ts sanitizeStructuresInPlace, GDD §8.5/US70),
+ * which runs inside hydrate.
+ */
+export function sanitizeSaveDoc(input: SaveDocV2): SanitizeResult {
   const doc = structuredClone(input);
   const warnings: string[] = [];
 

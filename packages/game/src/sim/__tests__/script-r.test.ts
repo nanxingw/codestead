@@ -48,11 +48,17 @@ describe('script R 28-day bandwidth (GDD §4.6 验收带宽表)', () => {
     expect(d1.xpAfterMorning).toBe(50); // 10 plantings × 5 XP
   });
 
-  it('D3: first payday — cumulative gross 180g, inside [150,300]', () => {
+  it('D3: first payday — cumulative gross in [150,300], at/above the 180g baseline floor', () => {
     const d3 = at(records28(), 3);
     expect(d3.cumulativeGross).toBeGreaterThanOrEqual(150);
     expect(d3.cumulativeGross).toBeLessThanOrEqual(300);
-    expect(d3.summary.goldEarned).toBe(180); // 10 radish × 18g (§4.6 baseline)
+    // §4.6 baseline = 10 radish × 18g = 180g at NORMAL quality. M3 quality (§4.5, PRD 04
+    // US43) is a positive-only surprise bonus (silver 1.25× / gold 1.5× ≥ 1×), so the real
+    // payday is ≥ the 180g floor and stays inside the band — never a new grind axis, just a
+    // small upside on the same crops. For this seed one radish rolls silver
+    // (floor(18×1.25)=22, +4g over the flat 180g → 184g).
+    expect(d3.summary.goldEarned).toBeGreaterThanOrEqual(180);
+    expect(d3.summary.goldEarned).toBeLessThanOrEqual(300);
   });
 
   it('红线 1: Lv2 on the morning of D3 — without any achievement XP (§5.4)', () => {
@@ -156,11 +162,16 @@ describe('zero-anxiety regression V4 (GDD §4.8 — 28 idle days)', () => {
     expect(sim.state.economy.gold).toBe(100);
     expect(sim.state.progress.xp).toBe(0);
     expect(Object.keys(sim.state.farm.tiles)).toHaveLength(0);
-    // inventory untouched: the two starting tools and nothing else
+    // Inventory untouched across the idle month: the M3 baseline tools and nothing else.
+    // hoe + watering_can are the §10.2 new-save tools; axe + pickaxe are the §8.1 carpenter
+    // grant the facade hands out on load (idempotent, zero-loss — PRD 04 US32). The point is
+    // that 28 idle days ADD nothing and remove nothing, not that the bag is empty of tools.
     const items = sim.state.inventory.slots.filter((s) => s !== null);
     expect(items).toEqual([
       { itemId: 'hoe', count: 1 },
       { itemId: 'watering_can', count: 1 },
+      { itemId: 'axe', count: 1 },
+      { itemId: 'pickaxe', count: 1 },
     ]);
   });
 

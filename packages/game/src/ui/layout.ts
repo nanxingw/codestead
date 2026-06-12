@@ -44,11 +44,26 @@ export const BIN_PANEL = { x: 160, y: 60, width: 320, height: 240 } as const;
 export const SUMMARY_PANEL = { x: 168, y: 24, width: 304, height: 312 } as const;
 
 /** Pause menu / settings / dialogs — small centered cards (4-grid).
- *  Menu height fits 6 buttons since the M1.5 「成就」 entry (PRD 02 US12). */
-export const MENU_PANEL = { x: 240, y: 84, width: 160, height: 192 } as const;
+ *  Menu height fits 8 buttons since the M3 「建造」/「图鉴」 entries (PRD 04 US1/US49). */
+export const MENU_PANEL = { x: 240, y: 60, width: 160, height: 240 } as const;
 export const SETTINGS_PANEL = { x: 184, y: 36, width: 272, height: 288 } as const;
 export const DIALOG_PANEL = { x: 220, y: 132, width: 200, height: 96 } as const;
 export const READING_PANEL = { x: 184, y: 60, width: 272, height: 240 } as const;
+
+/** Build catalog (M3, GDD §8.3 CATALOG) — same envelope family as the shop panel. */
+export const BUILD_PANEL = { x: 168, y: 24, width: 304, height: 312 } as const;
+
+/** Build/demolish confirm dialog (M3, §8.3 CONFIRM — taller than DIALOG_PANEL). */
+export const BUILD_CONFIRM_PANEL = { x: 196, y: 104, width: 248, height: 152 } as const;
+
+/** Facility interaction panels (coop / workshop / drying rack, M3 §8.2). */
+export const FACILITY_PANEL = { x: 184, y: 48, width: 272, height: 264 } as const;
+
+/** Profession certificate dialog (M3, GDD §5.3 职业证书桌). */
+export const PROFESSION_PANEL = { x: 168, y: 84, width: 304, height: 192 } as const;
+
+/** Codex (图鉴) page — same envelope as the settings/achievements tabs (M3, §5.8). */
+export const CODEX_PANEL = { x: 184, y: 36, width: 272, height: 288 } as const;
 
 /** Font sizes: only 12 / 24 px, line heights 16 / 28 (GDD §11.3). */
 export const FONT_SIZE = { body: 12, title: 24 } as const;

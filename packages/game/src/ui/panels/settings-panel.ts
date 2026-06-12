@@ -1,11 +1,11 @@
 /**
  * settings-panel.ts — Esc → 设置 (GDD §10.7; M1 subset per PRD 01 US96).
  *
- * Live rows: master volume (0..100, default 80), muted, language (zh-CN; en grayed
- * until M5), reducedMotion three-state. Grayed structure rows ship from day one so the
- * page never reflows: bgm/sfx/ui volumes (M3), 会话面板 (M2), 村民任务 (M4). Save
- * import/export entries route to the storage layer (GDD §10.6); the storage status
- * line shows 「存储：正常 ✓」 in M1. Every change applies immediately and persists.
+ * Live rows: master volume (0..100, default 80), muted, the M3 channel trio
+ * bgm/sfx/ui (35/70/50 defaults, ruling A-10 — PRD 04 US56; bgm deliberately low),
+ * language (zh-CN; en grayed until M5), reducedMotion three-state. Remaining grayed
+ * structure row: 村民任务 (M4). Save import/export entries route to the storage
+ * layer (GDD §10.6). Every change applies immediately and persists.
  */
 import type Phaser from 'phaser';
 
@@ -20,11 +20,13 @@ import { addScrim } from '../widgets/scrim';
 import { uiText } from '../widgets/text';
 import type { Panel, UiHost } from './host';
 
+/** The four live volume rows (GDD §10.7; PRD 04 US56). */
+type VolumeChannel = 'master' | 'bgm' | 'sfx' | 'ui';
+
 export class SettingsPanel implements Panel {
   readonly id: UiPanelId = 'settings';
   private objects: Phaser.GameObjects.GameObject[] = [];
-  private masterBar!: Phaser.GameObjects.Graphics;
-  private masterValue!: Phaser.GameObjects.Text;
+  private volumeRedraws: (() => void)[] = [];
   private mutedButton!: TextButton;
   private rmButton!: TextButton;
   private sessionsButton!: TextButton;
@@ -42,51 +44,26 @@ export class SettingsPanel implements Panel {
     const x = p.x + 12;
     const valueX = p.x + p.width - 12;
 
-    // ---- audio ----
+    // ---- audio: master + the M3 channel trio, all live sliders (US56) ----
     this.label(x, y, t('settings.audio'), PALETTE.gold.light);
     y += 16;
-    this.label(x, y, t('settings.master'));
-    this.masterBar = scene.add.graphics().setDepth(DEPTH.panel + 1);
-    this.track(this.masterBar);
-    const barX = p.x + 108;
-    const barW = 96;
-    const barY = y + 4;
-    const barZone = scene.add
-      .zone(barX, barY - 4, barW, 14)
-      .setOrigin(0, 0)
-      .setInteractive({ useHandCursor: true })
-      .setDepth(DEPTH.panel + 2);
-    this.track(barZone);
-    const setFromPointer = (pointer: Phaser.Input.Pointer): void => {
-      const ratio = Math.min(1, Math.max(0, (pointer.x - barX) / barW));
-      this.host.settings.update({ audio: { master: Math.round(ratio * 100) } });
-      this.applyAudio();
-      this.refresh();
-    };
-    barZone.on('pointerdown', setFromPointer);
-    barZone.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.isDown) setFromPointer(pointer);
-    });
-    this.masterValue = this.track(
-      uiText(scene, valueX, y, '', { color: PALETTE.ui.text })
-        .setOrigin(1, 0)
-        .setDepth(DEPTH.panel + 1),
-    );
-    this.drawMasterBar(barX, barY, barW);
+    this.volumeRow(x, y, valueX, t('settings.master'), 'master');
     y += 18;
 
     this.label(x, y, t('settings.muted'));
     this.mutedButton = this.toggleButton(valueX - 48, y - 2, 48, () => {
       this.host.settings.update({ audio: { muted: !this.host.settings.get().audio.muted } });
-      this.applyAudio();
       this.refresh();
     });
     y += 20;
 
-    // M3 channel rows — grayed structure (GDD §10.7: 设置页结构从第一天稳定).
-    for (const key of ['settings.bgm', 'settings.sfx', 'settings.ui_volume'] as const) {
-      this.label(x, y, t(key), PALETTE.ui.textDim);
-      this.label(valueX - 60, y, t('settings.m3_badge'), PALETTE.ui.textDim);
+    // M3 channel rows — live since PRD 04 (defaults 35/70/50, ruling A-10).
+    for (const [labelKey, channel] of [
+      ['settings.bgm', 'bgm'],
+      ['settings.sfx', 'sfx'],
+      ['settings.ui_volume', 'ui'],
+    ] as const) {
+      this.volumeRow(x, y, valueX, t(labelKey), channel);
       y += 16;
     }
     y += 4;
@@ -158,13 +135,12 @@ export class SettingsPanel implements Panel {
 
   refresh(): void {
     const s = this.host.settings.get();
-    this.masterValue.setText(String(s.audio.master));
     this.mutedButton.setLabel(s.audio.muted ? t('settings.on') : t('settings.off'));
     this.rmButton.setLabel(t(`settings.rm_${s.accessibility.reducedMotion}`));
     // Compact connection summary on the 会话面板 entry (US40 — never gated).
     const hud = this.host.sessionHud;
     this.sessionsButton.setLabel(hud ? `${connectionSummary(hud.hudState())} ▸` : '不可用');
-    this.redrawMasterBar();
+    for (const redraw of this.volumeRedraws) redraw();
   }
 
   handleKey(event: KeyboardEvent): boolean {
@@ -178,7 +154,6 @@ export class SettingsPanel implements Panel {
       this.host.settings.update({
         audio: { master: Math.min(100, Math.max(0, master + delta)) },
       });
-      this.applyAudio();
       this.refresh();
       return true;
     }
@@ -201,30 +176,62 @@ export class SettingsPanel implements Panel {
 
   // ---- helpers ----
 
-  private barGeom = { x: 0, y: 0, w: 0 };
-
-  private drawMasterBar(x: number, y: number, w: number): void {
-    this.barGeom = { x, y, w };
-    this.redrawMasterBar();
-  }
-
-  private redrawMasterBar(): void {
-    const { x, y, w } = this.barGeom;
-    if (w === 0) return;
-    const s = this.host.settings.get();
-    const fill = s.audio.master / 100;
-    this.masterBar.clear();
-    this.masterBar.fillStyle(hexToNum(PALETTE.ui.panelLight), 1);
-    this.masterBar.fillRect(x, y, w, 6);
-    this.masterBar.fillStyle(hexToNum(s.audio.muted ? PALETTE.ui.textDim : PALETTE.water.light), 1);
-    this.masterBar.fillRect(x, y, Math.round(w * fill), 6);
-    this.masterBar.lineStyle(1, hexToNum(PALETTE.ink), 1);
-    this.masterBar.strokeRect(x + 0.5, y + 0.5, w - 1, 5);
-  }
-
-  private applyAudio(): void {
-    const s = this.host.settings.get();
-    this.host.ctx.audio?.setMasterVolume(s.audio.master, s.audio.muted);
+  /**
+   * One live volume row: label + 96px slider bar + numeric value (US56). Bar geometry
+   * matches the M1 master row (height 6, zone 14, 4px grid — GDD §11.3); changes
+   * persist immediately and reach the audio system via the settings onChange push.
+   */
+  private volumeRow(
+    x: number,
+    y: number,
+    valueX: number,
+    label: string,
+    channel: VolumeChannel,
+  ): void {
+    const scene = this.host.scene;
+    const p = SETTINGS_PANEL;
+    this.label(x, y, label);
+    const bar = scene.add.graphics().setDepth(DEPTH.panel + 1);
+    this.track(bar);
+    const barX = p.x + 108;
+    const barW = 96;
+    const barY = y + 4;
+    const value = this.track(
+      uiText(scene, valueX, y, '', { color: PALETTE.ui.text })
+        .setOrigin(1, 0)
+        .setDepth(DEPTH.panel + 1),
+    );
+    const zone = scene.add
+      .zone(barX, barY - 4, barW, 14)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(DEPTH.panel + 2);
+    this.track(zone);
+    const setFromPointer = (pointer: Phaser.Input.Pointer): void => {
+      const ratio = Math.min(1, Math.max(0, (pointer.x - barX) / barW));
+      const patch: { master?: number; bgm?: number; sfx?: number; ui?: number } = {};
+      patch[channel] = Math.round(ratio * 100);
+      this.host.settings.update({ audio: patch });
+      this.refresh();
+    };
+    zone.on('pointerdown', setFromPointer);
+    zone.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.isDown) setFromPointer(pointer);
+    });
+    const redraw = (): void => {
+      const s = this.host.settings.get();
+      const volume = s.audio[channel];
+      value.setText(String(volume));
+      bar.clear();
+      bar.fillStyle(hexToNum(PALETTE.ui.panelLight), 1);
+      bar.fillRect(barX, barY, barW, 6);
+      bar.fillStyle(hexToNum(s.audio.muted ? PALETTE.ui.textDim : PALETTE.water.light), 1);
+      bar.fillRect(barX, barY, Math.round((barW * volume) / 100), 6);
+      bar.lineStyle(1, hexToNum(PALETTE.ink), 1);
+      bar.strokeRect(barX + 0.5, barY + 0.5, barW - 1, 5);
+    };
+    this.volumeRedraws.push(redraw);
+    redraw();
   }
 
   /** DOM file input — the GDD-sanctioned exception for import (§10.6). */

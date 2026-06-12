@@ -10,11 +10,12 @@
  *   1 settleShipping   (economy.settleShipping)
  *   2 growCrops        (farming.growCrops)
  *   3 resetWatered     (farming.resetWatered)
- *   4 progressConstruction  — M3, no-op in M1
- *   5 produceAnimals        — M3, no-op in M1
- *   6 refreshPickups   (pickups.refreshPickups)
+ *   4 progressConstruction  — M3 (building.ts): 工地 → 烘干 → 加工 (§8.4 order)
+ *   5 produceAnimals        — M3 (coop.ts): eggs per built coop, uncapped
+ *   6 refreshPickups   (pickups.refreshPickups — M3 regen 10 wood + 6 stone, §8.1)
  *   7 advanceDay       (day++, minuteOfDay = 360)
- *   8 seasonCheck           — M1 no-op (spring lock)
+ *   8 seasonCheck           — M3 still a framework no-op (season rotation is B-11
+ *                             owner-pending; PRD 04 Out of Scope)
  *   9 rollWeather      (weatherToday ← weatherTomorrow; roll new tomorrow; if the new
  *                       weatherToday is rain → wet all open-field tiles) — AFTER #7,
  *                       so the summary's "tomorrow" weather is the shifted weatherToday
@@ -26,9 +27,20 @@
  * Between #9 and #10 the settlement also applies the documented "new morning" effects
  * that the GDD anchors to the next 6:00 but does not number as phases:
  *   - fence/zone unlocks earned by level-ups during the day (GDD §1.4 "次日 6:00");
+ *   - M3: greenhouse interior tiles are EXEMPT from rain wetting (§8.2 室内无雨天豁免 —
+ *     applied right after #9's applyRainWetting so farming.ts stays interior-agnostic);
+ *   - M3: sprinklers wet their coverage at 6:00 (§3.8/§5.3; tier 1 cross, tier 2 3×3;
+ *     outdoor only — coverage never crosses a greenhouse wall);
  *   - the soft-lock relief mail check (GDD §4.8 "晨检");
  *   - pruning stale NEW-badge bookkeeping (GDD §4.3, badge lasts one game day).
  */
+import {
+  greenhousePlotKeys,
+  progressConstructionInPlace,
+  progressProcessingInPlace,
+  sprinklerCoverage,
+} from './building.js';
+import { produceAnimalsInPlace } from './coop.js';
 import { TIME } from './data/constants.js';
 import { getCropDef } from './data/crops.js';
 import type { CropId } from './data/crops.js';
@@ -37,7 +49,7 @@ import { morningReliefCheck, settleShipping } from './economy.js';
 import { applyRainWetting, growCrops, isOldVine, resetWatered } from './farming.js';
 import { bumpCounterInPlace } from './leveling.js';
 import { refreshPickups } from './pickups.js';
-import { pendingZoneUnlocks, tilledCapForLevel } from './tiles.js';
+import { pendingZoneUnlocks, tileKey, tilledCapForLevel } from './tiles.js';
 import { rollWeather, timeView } from './time.js';
 import type { DaySummary, MapMeta, SimEvent, TomorrowItem, WorldState } from './types.js';
 
@@ -63,8 +75,13 @@ export function runNight(
   // #3 resetWatered (visual dry-out; #9 re-wets if the new day is rainy → net T12)
   cur = resetWatered(cur);
 
-  // #4 progressConstruction — M3, no-op in M1
-  // #5 produceAnimals — M3, no-op in M1
+  // #4 progressConstruction + in-progress goods, fixed §8.4 order: 工地 → 烘干 → 加工
+  // (`cur` is the pipeline's own clone after #3 — InPlace composition is safe).
+  events.push(...progressConstructionInPlace(cur));
+  events.push(...progressProcessingInPlace(cur));
+
+  // #5 produceAnimals (1 egg/hen per settlement night, built coops only)
+  events.push(...produceAnimalsInPlace(cur));
 
   // #6 refreshPickups (zero-loss overwrite of all forage spots)
   cur = refreshPickups(cur, map);
@@ -81,9 +98,26 @@ export function runNight(
   cur.time.weatherToday = newToday;
   cur.time.weatherTomorrow = roll.weather;
   cur.time.rngState = roll.rngState;
+  const interiorKeys = greenhousePlotKeys(cur.structures);
   if (newToday === 'rain') {
     cur = applyRainWetting(cur); // T13: every open-field tile wakes up wet
+    // §8.2 室内无雨天豁免: greenhouse interior plots stay dry under rain (the exemption
+    // lives here so farming.ts stays interior-agnostic).
+    for (const key of interiorKeys) {
+      const tile = cur.farm.tiles[key];
+      if (tile) tile.wateredToday = false;
+    }
     bumpCounterInPlace(cur, 'rainDaysSeen', 1);
+  }
+  // Sprinklers wet their coverage at 6:00 (§3.8/§5.3) — outdoor tiles only; coverage
+  // never crosses a greenhouse wall (interior watering needs the can; open question).
+  for (const sp of cur.sprinklers ?? []) {
+    for (const pos of sprinklerCoverage(sp)) {
+      const key = tileKey(pos);
+      if (interiorKeys.has(key)) continue;
+      const tile = cur.farm.tiles[key];
+      if (tile) tile.wateredToday = true;
+    }
   }
   bumpCounterInPlace(cur, 'sleepCount', 1);
 
@@ -172,6 +206,25 @@ function buildTomorrow(
     });
   }
   if (state.time.weatherToday === 'rain') items.push({ kind: 'rain' });
+
+  // Construction promises (§8.3 acceptance「还差 N 天完工」/ §2.5 TomorrowItem): one
+  // line per active site (and the farmhouse order), inDays = remaining settlement
+  // nights AFTER this settlement's #4 tick.
+  const sites: Extract<TomorrowItem, { kind: 'construction' }>[] = [];
+  for (const s of state.structures ?? []) {
+    if (s.state === 'underConstruction' && s.daysLeft !== undefined) {
+      sites.push({ kind: 'construction', buildingId: s.defId, inDays: s.daysLeft });
+    }
+  }
+  if (state.farmhouse?.construction) {
+    sites.push({
+      kind: 'construction',
+      buildingId: `farmhouse_${state.farmhouse.construction.targetStage}`,
+      inDays: state.farmhouse.construction.nightsLeft,
+    });
+  }
+  sites.sort((a, b) => a.inDays - b.inDays || a.buildingId.localeCompare(b.buildingId));
+  items.push(...sites);
 
   const readiness = new Map<CropId, number>();
   for (const tile of Object.values(state.farm.tiles)) {

@@ -27,7 +27,14 @@ export type UiPanelId =
   | 'sleepConfirm'
   | 'letter'
   | 'board'
-  | 'sign'; // readable signposts (US5 / backlog A-3, M1.5)
+  | 'sign' // readable signposts (US5 / backlog A-3, M1.5)
+  // ---- M3 (GDD §8.3 build machine / §5.3 / §5.8; PRD 04) ----
+  | 'buildCatalog' // CATALOG (= menu, tick stops; B key or Esc 菜单 → 建造)
+  | 'buildConfirm' // CONFIRM (= dialog; cost + build days + balance recheck §8.3)
+  | 'coop' // coop interior interaction (hens/eggs, rulings A-6/A-7)
+  | 'processing' // workshop 6 slots / drying rack 2 slots (§8.2)
+  | 'profession' // Lv5 certificate desk two-way choice (§5.3, A-13)
+  | 'codex'; // 图鉴 Esc-menu tab (§4.8/§5.8)
 
 export const PANEL_PAUSE_SOURCE: Readonly<Record<UiPanelId, PauseSource>> = {
   pauseMenu: 'menu',
@@ -43,12 +50,21 @@ export const PANEL_PAUSE_SOURCE: Readonly<Record<UiPanelId, PauseSource>> = {
   sign: 'dialog',
   sleepConfirm: 'dialog',
   daySummary: 'day_summary',
+  // M3 (§8.3: 目录 = 菜单态; 确认框 = 对话态; facility/profession panels = dialogs)
+  buildCatalog: 'menu',
+  buildConfirm: 'dialog',
+  coop: 'dialog',
+  processing: 'dialog',
+  profession: 'dialog',
+  codex: 'menu',
 };
 
 /** Panels allowed to be pushed on top of an existing panel (parent → children). */
 const NESTABLE: Readonly<Partial<Record<UiPanelId, readonly UiPanelId[]>>> = {
-  pauseMenu: ['settings', 'keysHelp', 'achievements'],
+  pauseMenu: ['settings', 'keysHelp', 'achievements', 'codex', 'buildCatalog'],
   settings: ['sessionSettings'], // 设置 → 会话面板 (GDD §6.5 M2 row; hud-sessions §9)
+  // 拆除/搬迁确认 nests on the catalog (§8.3 demolish table confirmations).
+  buildCatalog: ['buildConfirm'],
 };
 
 export class UiStackModel {

@@ -30,7 +30,8 @@ import type {
 } from '@codestead/shared';
 
 import type { MapMeta, PickupKind, Rect, TilePos, TileState, WorldState } from '../types.js';
-import { XP_THRESHOLDS, M1_LEVEL_CAP } from '../data/constants.js';
+import { XP_THRESHOLDS } from '../data/constants.js';
+import { LEVEL_CAP_M3 } from '../profession.js';
 import farmMapMeta from '../data/farm-map-meta.json';
 
 // ---- readiness probe (skeletons threw 'TODO(M1): …'; now guarded by explicit tests) ----
@@ -115,13 +116,13 @@ export function xpForLevel(level: number): number {
   return XP_THRESHOLDS[level - 1] ?? 0;
 }
 
-/** Effective level derived locally from the §5.1 thresholds + M1 cap (test-side oracle). */
+/** Effective level derived locally from the §5.1 thresholds + M3 Lv10 cap (test oracle). */
 export function effLevelOf(xp: number): number {
   let level = 1;
   for (let i = 1; i < XP_THRESHOLDS.length; i++) {
     if (xp >= XP_THRESHOLDS[i]) level = i + 1;
   }
-  return Math.min(level, M1_LEVEL_CAP);
+  return Math.min(level, LEVEL_CAP_M3);
 }
 
 export interface SaveOverrides {

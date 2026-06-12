@@ -15,6 +15,7 @@ import { formatDayEndSessionLine, stateCounts } from '../../hud/store';
 import { getCropDef } from '../../sim/data/crops';
 import { XP_THRESHOLDS } from '../../sim/data/constants';
 import { levelForXp } from '../../sim/leveling';
+import { professionHintPending } from '../../sim/profession';
 import { tilledCapForLevel } from '../../sim/tiles';
 import type { DaySummary, TomorrowItem } from '../../sim/types';
 import { formatGold } from '../format';
@@ -98,6 +99,13 @@ export class DaySummaryPanel implements Panel {
     // 新成就 (GDD §5.8; PRD 02 US11): the settlement sweep's unlocks ride the summary.
     for (const id of summary.achievementsUnlocked) {
       progressLines.push(t('summary.achievement', { name: t(`achv.${id}.name`) }));
+    }
+    // US39 one-shot certificate-desk hint (GDD §5.3): exactly once on the first
+    // settlement screen where Lv5+ ∧ profession unchosen, then the flag burns —
+    // the desk waits silently forever after (no nag).
+    if (safe('professionHint', () => professionHintPending(host.state()), false)) {
+      progressLines.push(t('summary.profession_hint'));
+      host.ctx.sim.markProfessionHintShown();
     }
     progressLines.push(this.etaLine());
     y = this.section(y, 'XP', progressLines);
@@ -209,8 +217,13 @@ export class DaySummaryPanel implements Panel {
           prev: item.prevCap,
           cap: item.newCap,
         });
+      case 'construction': // 「还差 N 天完工」 (GDD §8.3 acceptance; PRD 04 US11)
+        return t('summary.tomorrow_construction', {
+          name: t(`blueprint.${item.buildingId}`),
+          days: item.inDays,
+        });
       default:
-        return t('summary.tomorrow_fallback'); // construction/seasonEnd are M3
+        return t('summary.tomorrow_fallback'); // seasonEnd: season rotation 待裁决 (B-11)
     }
   }
 

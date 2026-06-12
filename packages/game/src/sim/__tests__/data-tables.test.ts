@@ -21,9 +21,11 @@ import {
 } from '../data/constants.js';
 
 describe('item table (GDD §6.1, ruling A-14 prefix discipline)', () => {
-  it('lists tools, 6 seeds, 6 crops and 3 materials (table enumerates 17 ids)', () => {
-    expect(ITEMS).toHaveLength(17); // §6.1 heading says 16 — recorded as open question
-    expect(ITEMS_BY_ID.size).toBe(17);
+  it('lists the 17 M1 ids plus the 16 M3 additions (§8.1/§8.2, PRD 04 US75)', () => {
+    // 17 M1 (§6.1; heading says 16 — recorded open question) + M3: axe, pickaxe,
+    // animal_egg, artisan_mayonnaise, 6 jams, 6 dried = 33.
+    expect(ITEMS).toHaveLength(33);
+    expect(ITEMS_BY_ID.size).toBe(33);
   });
 
   it.each(M1_CROP_IDS.map((id) => [id] as const))(

@@ -13,8 +13,9 @@
 import type {
   CropState as SaveCropState,
   Facing,
-  ItemStack,
+  ItemStackV2 as ItemStack,
   Profession,
+  Quality,
   Season,
   TileState as SaveTileState,
   Weather,
@@ -23,7 +24,19 @@ import type {
 import type { CropId } from './data/crops.js';
 import type { ItemId } from './data/items.js';
 
-export type { Facing, ItemStack, Profession, Season, Weather };
+// Runtime ItemStack = the v2 (quality-aware) shape: `quality` is optional and only ever
+// carries 'silver'|'gold' (absent ⇒ normal — the §6.1 stacking + v2 wire convention).
+// The harvest reducer is the sole producer; everything else preserves it untouched.
+export type { Facing, ItemStack, Profession, Quality, Season, Weather };
+// M3 carrier shapes (GDD §8.4/§10.2 v2) — re-exported so sim consumers/tests can take
+// them from types.ts like every other save-aligned shape.
+export type {
+  FarmhouseState,
+  PlacedStructure,
+  ProcessingJob,
+  Sprinkler,
+  StructureData,
+} from '@codestead/shared';
 
 // ---- geometry ----
 
@@ -153,6 +166,10 @@ export type CounterId =
   /** One-time onboarding flag (US86 porch letter, backlog A-4): 0/absent = unread,
    * 1 = read. A counter (not a schema field) so SaveDoc v1 stays untouched (PRD 02). */
   | 'introLetterRead'
+  /** One-shot Lv5 profession settlement hint (PRD 04 US39): 0/absent = not yet shown,
+   * 1 = shown once, never again. Same counter-as-flag pattern as introLetterRead
+   * (sim/profession.ts professionHintPending / markProfessionHintShownInPlace). */
+  | 'professionHintShown'
   | 'regrowChainMax'
   | 'buildingsBuilt'
   | `built:${string}`
@@ -180,6 +197,12 @@ export interface PickupState {
   kind: PickupKind;
   /** Whether the spot still holds today's pickup. */
   available: boolean;
+  /**
+   * Units this spot grants today (M3, GDD §8.1: daily edge regen rises to 10 wood +
+   * 6 stone spread across the fixed map spots). Absent = 1 (M1 semantics) so pre-M3
+   * fixtures stay valid. Runtime-only — pickup state never enters the SaveDoc (B-7).
+   */
+  count?: number;
 }
 
 // ---- world / root state ----
@@ -203,6 +226,18 @@ export interface WorldState {
   pickups: PickupState[];
   /** Per-day log consumed by NightUpdate #10 buildSummary, cleared nightly (GDD §2.5). */
   dayLog: DayLogEntry[];
+
+  // ---- M3 carriers (SaveDoc v2 blocks, GDD §8.4/§10.2; optional during the contract
+  // pass — TODO(M3 implementer): make required and hydrate from RestorableSaveDocV2) ----
+
+  /** Placed structures (GDD §8.4); BuildModeState (UI) never lives here or in saves. */
+  structures?: import('@codestead/shared').PlacedStructure[];
+  /** Sprinkler layout (GDD §3.8/§10.2 v2): wets neighbours at 6:00, by tier. */
+  sprinklers?: import('@codestead/shared').Sprinkler[];
+  /** Farmhouse upgrade chain state (GDD §8.2). */
+  farmhouse?: import('@codestead/shared').FarmhouseState;
+  /** Map resource nodes (trees/boulders) permanently cleared by axe/pickaxe (§8.1). */
+  clearedResourceNodes?: string[];
 }
 
 /** TODO(M1 time implementer): refine the day-log vocabulary as buildSummary needs it. */
@@ -225,6 +260,12 @@ export interface MapMeta {
   pickupSpots: { id: string; kind: PickupKind; tile: TilePos }[];
   buildPlots: { id: string; rect: Rect }[]; // M3
   npcAnchors: { id: string; tile: TilePos }[]; // M4
+  /**
+   * M3 (GDD §8.1): map trees/boulders clearable by axe/pickaxe (initial stock
+   * ≈200 wood + 90 stone). Optional until the map export script emits them —
+   * TODO(M3 implementer): extend export-map-meta.ts, then make required.
+   */
+  resourceNodes?: { id: string; kind: 'tree' | 'boulder'; tile: TilePos }[];
 }
 
 // ---- actions & queries (GDD §1.7, §3.8) ----
@@ -268,7 +309,31 @@ export type SimCommand =
   | { type: 'buyShopEntry'; entryId: string; requested: number }
   | { type: 'refundSeeds'; slot: number; count: number } // 100% refund (ruling A-11)
   | { type: 'pickup'; spotId: string }
-  | { type: 'sleep' }; // house-door manual sleep (ruling A-20); same NightUpdate as 22:00
+  | { type: 'sleep' } // house-door manual sleep (ruling A-20); same NightUpdate as 22:00
+  // ---- M3 build / coop / profession commands (GDD §8.2/§8.3/§5.3; PRD 04 §N73).
+  // Routed onto the contract reducers (building.ts / coop.ts / profession.ts) by
+  // sim.ts applyCommand; blocked attempts return [] and the UI derives the single
+  // reason from state — the buyShopEntry convention. ----
+  | { type: 'placeStructure'; defId: string; origin: TilePos }
+  | { type: 'placeSprinkler'; defId: 'sprinkler' | 'sprinkler_advanced'; tile: TilePos }
+  | { type: 'demolishStructure'; instanceId: string }
+  | { type: 'moveStructure'; instanceId: string; origin: TilePos }
+  | { type: 'orderFarmhouseUpgrade'; defId: 'farmhouse_1' | 'farmhouse_2' }
+  | { type: 'startProcessingJob'; instanceId: string; slot: number; inputItemId: string }
+  | { type: 'collectProcessedGood'; instanceId: string; slot: number }
+  | { type: 'buyHen'; instanceId: string }
+  | { type: 'sellHen'; instanceId: string }
+  | { type: 'collectEggs'; instanceId: string }
+  | { type: 'chooseProfession'; profession: Profession }
+  // ---- M3 material economy (GDD §8.1/§6.2; PRD 04 §E/§H — the labor + shop + QoL
+  // routes the §8.1 main material path and the §6.2 backpack promise depend on).
+  // Blocked attempts return [] (the buyShopEntry convention; UI derives the reason). ----
+  /** Axe/pickaxe clears one map tree/boulder (5 wood / 3 stone, permanent; §8.1). */
+  | { type: 'clearResourceNode'; nodeId: string }
+  /** Shop wood/stone buy-in floor at 5g each — anti-soft-lock (§8.1/§4.4). */
+  | { type: 'buyMaterial'; material: 'wood' | 'stone'; requested: number }
+  /** Backpack 12 → 24 for 1,000g, level-independent, instant (§6.2/§6.9). */
+  | { type: 'expandInventory' };
 
 // ---- sim → render events (GDD §12 contract; render/audio subscribe, never call back) ----
 
@@ -291,7 +356,23 @@ export type SimEvent =
   | { type: 'SimPaused' }
   | { type: 'SimResumed' }
   | { type: 'tileChanged'; tile: TilePos; state: TileState | null }
-  | { type: 'zoneUnlocked'; zoneId: string };
+  | { type: 'zoneUnlocked'; zoneId: string }
+  // ---- M3 building/coop/profession events (GDD §8/§5.3; PRD 04 — renderer/audio
+  // subscribe only; additive to the §12 vocabulary, recorded for §12 backfill) ----
+  /** Placement committed: a site (building) or an instant entity (station/deco). */
+  | { type: 'StructurePlaced'; instanceId: string; defId: string; tile: TilePos }
+  /** Demolish/cancel with the refund actually paid (§8.3 table). */
+  | { type: 'StructureRemoved'; instanceId: string; defId: string; refundGold: number }
+  | { type: 'StructureMoved'; instanceId: string; defId: string; tile: TilePos }
+  /** 6:00 completion — confetti particles + settlement line, NEVER a popup (§8.3). */
+  | { type: 'ConstructionCompleted'; instanceId: string; defId: string; xp: number }
+  /** NightUpdate #5 produce summary (per coop). */
+  | { type: 'EggsProduced'; instanceId: string; count: number }
+  /** A processing job reached daysLeft 0 (rack or workshop slot). */
+  | { type: 'ProcessingDone'; instanceId: string; slot: number; outputItemId: string }
+  | { type: 'SprinklerPlaced'; tile: TilePos; tier: 1 | 2 }
+  /** Irreversible Lv5 choice at the certificate desk (§5.3; ruling A-13 enum). */
+  | { type: 'ProfessionChosen'; profession: Profession };
 
 // ---- night settlement summary (GDD §2.5) ----
 

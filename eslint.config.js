@@ -106,6 +106,39 @@ export default tseslint.config(
       ],
     },
   },
+  // ---- Architecture boundary: audio/ is the pure AudioDirector reducer (M3, PRD 04;
+  // game-design §11.6) — sim events in, command lists out. Phaser stays in the thin
+  // playback shell, which only EXECUTES commands; the reducer is replay-testable
+  // without an AudioContext. NOTE: repeats the idb-keyval ban (rules don't merge).
+  {
+    files: ['packages/game/src/audio/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'phaser',
+              message:
+                'audio/** is the pure AudioDirector reducer — Phaser stays in the playback shell (game-design §11.6, PRD 04).',
+            },
+            {
+              name: 'idb-keyval',
+              message:
+                'idb-keyval may only be imported inside packages/game/src/storage/** (game-design §10.1).',
+            },
+          ],
+          patterns: [
+            {
+              group: ['phaser/*'],
+              message:
+                'audio/** is the pure AudioDirector reducer — Phaser stays in the playback shell (game-design §11.6, PRD 04).',
+            },
+          ],
+        },
+      ],
+    },
+  },
   // ---- Architecture boundary: sim/ is the headless simulation layer — zero Phaser imports
   // (tech-stack §1 / §6 risk #10). This is the project's most load-bearing test seam.
   // NOTE: rules don't merge across configs, so this block must repeat the idb-keyval ban.

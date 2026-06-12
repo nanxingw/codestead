@@ -37,7 +37,7 @@ describe('SaveManager', () => {
     const { storage, manager } = makeManager({});
     await expect(manager.saveNow('manual')).resolves.toBe(true);
     const doc = (await storage.read()) as SaveDoc;
-    expect(doc.schemaVersion).toBe(1);
+    expect(doc.schemaVersion).toBe(2); // CURRENT = v2 since M3 (§10.6)
     expect(doc.meta.saveCount).toBe(2);
     expect(manager.meta.saveCount).toBe(2);
   });

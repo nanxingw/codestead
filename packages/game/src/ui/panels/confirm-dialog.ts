@@ -5,8 +5,11 @@
  */
 import type Phaser from 'phaser';
 
+import { effectiveLevel } from '../../sim/leveling';
+import { PROFESSION_MIN_LEVEL } from '../../sim/profession';
 import { DEPTH, DIALOG_PANEL } from '../layout';
 import { PALETTE } from '../palette';
+import { safe } from '../safe';
 import { t } from '../strings';
 import type { UiPanelId } from '../ui-stack';
 import { TextButton } from '../widgets/button';
@@ -44,6 +47,28 @@ export class SleepConfirmPanel implements Panel {
     no.setDepth(DEPTH.panel + 1);
     this.track(yes);
     this.track(no);
+
+    // M3 certificate desk entry (GDD §5.3): the desk lives in the farmhouse and the
+    // door is the M1 farmhouse surface (ruling A-20) — from Lv5 the dialog offers the
+    // certificate. Player-initiated only, never a nag (PRD 04 US38/US39).
+    const level = safe('sleep.level', () => effectiveLevel(host.state().progress.xp), 1);
+    this.deskAvailable = level >= PROFESSION_MIN_LEVEL;
+    if (this.deskAvailable) {
+      const desk = new TextButton(scene, p.x + 16, p.y + 40, `[P] ${t('sleep.profession')}`, {
+        width: p.width - 32,
+        onClick: () => this.openDesk(),
+      });
+      desk.setDepth(DEPTH.panel + 1);
+      this.track(desk);
+    }
+  }
+
+  /** Lv5+ only — keyboard parity via the P key (dual-channel promise, §6.8). */
+  private deskAvailable = false;
+
+  private openDesk(): void {
+    this.host.closeTop();
+    this.host.openChild('profession');
   }
 
   refresh(): void {
@@ -53,6 +78,10 @@ export class SleepConfirmPanel implements Panel {
   handleKey(event: KeyboardEvent): boolean {
     if (event.key === 'Enter' || event.key === 'e' || event.key === 'E') {
       this.confirm();
+      return true;
+    }
+    if ((event.key === 'p' || event.key === 'P') && this.deskAvailable) {
+      this.openDesk(); // M3 certificate desk, keyboard path (§6.8 equivalence)
       return true;
     }
     if (event.key === 'Escape') {

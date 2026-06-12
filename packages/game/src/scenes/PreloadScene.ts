@@ -28,7 +28,11 @@ import { detectAppVersion, generateSeed } from '../boot/new-game';
 import { GAME_WIDTH } from '../scale';
 import { createSim, newGameSim } from '../sim/sim';
 import type { MapMeta } from '../sim/types';
-import { applyImportedSave, parseImportedSave } from '../storage/export-import';
+import {
+  applyImportedSave,
+  parseImportedSave,
+  popImportedFromVersion,
+} from '../storage/export-import';
 import { toRestorable } from '../storage/save-codec';
 import { IdbSaveStorage } from '../storage/save-storage';
 import { PALETTE as UI_PALETTE } from '../ui/palette';
@@ -114,6 +118,12 @@ export class PreloadScene extends Phaser.Scene {
         // points stay on the default-off mode (GDD §4.6 / ruling B-3 decoupling).
         const sim = createSim(toRestorable(outcome.doc), mapMeta, { achievements: true });
         this.registry.set(REGISTRY_KEYS.sim, sim);
+        // US37 retro seam: slot-migrated this boot, OR migrated by the in-game
+        // import that triggered this reload (sessionStorage pop, save-transfer.ts).
+        const retroFrom = outcome.migratedFromVersion ?? popImportedFromVersion();
+        if (retroFrom !== undefined) {
+          this.registry.set(REGISTRY_KEYS.retroFromVersion, retroFrom);
+        }
         const bundle: BootBundle = {
           storage: deps.storage,
           meta: outcome.doc.meta,
@@ -203,7 +213,12 @@ export class PreloadScene extends Phaser.Scene {
       return;
     }
     // Slot now holds a valid doc — run the machine again and enter the game.
+    // The slot holds the MIGRATED doc, so re-classification reads 'current';
+    // provenance for the US37 retro banners comes from the parse step.
     const next = await runBootLoad(deps);
+    if (next.state === 'running' && parsed.migratedFromVersion !== undefined) {
+      this.registry.set(REGISTRY_KEYS.retroFromVersion, parsed.migratedFromVersion);
+    }
     this.routeOutcome(next, deps, mapMeta);
   }
 

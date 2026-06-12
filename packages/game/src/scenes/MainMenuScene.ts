@@ -230,6 +230,14 @@ export class MainMenuScene extends Phaser.Scene {
     // and test entry points stay on the default-off mode).
     const sim = createSim(toRestorable(outcome.doc), this.mapMeta(), { achievements: true });
     this.registry.set(REGISTRY_KEYS.sim, sim);
+    // US37 retro seam: a fresh adoption invalidates any boot-time retro pending
+    // for the PREVIOUS sim (e.g. v1 slot booted, then 新游戏 before entering);
+    // re-arm only when this outcome itself was migrated. The import path re-sets
+    // the key from its parse step (applyImport below).
+    this.registry.remove(REGISTRY_KEYS.retroFromVersion);
+    if (outcome.migratedFromVersion !== undefined) {
+      this.registry.set(REGISTRY_KEYS.retroFromVersion, outcome.migratedFromVersion);
+    }
     const bundle: BootBundle = {
       storage: deps.storage,
       meta: outcome.doc.meta,
@@ -279,10 +287,15 @@ export class MainMenuScene extends Phaser.Scene {
         return false;
       }
       // Slot replaced — run the §10.4 machine again so the menu reflects the import.
+      // The slot holds the MIGRATED doc ('current' on re-read); US37 retro
+      // provenance therefore comes from the parse step, set after adoption.
       const next = await runBootLoad(deps);
       if (!this.adoptRunningOutcome(next, deps)) {
         this.setStatus(t('settings.import_failed'));
         return false;
+      }
+      if (parsed.migratedFromVersion !== undefined) {
+        this.registry.set(REGISTRY_KEYS.retroFromVersion, parsed.migratedFromVersion);
       }
       if (!this.activePanel) this.showMenu(); // refresh the save summary
       this.setStatus(t('settings.import_ok'));

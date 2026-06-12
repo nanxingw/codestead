@@ -84,6 +84,10 @@ function isPickupKind(v: unknown): v is PickupKind {
   return v === 'wood' || v === 'stone' || v === 'wildflower';
 }
 
+function isResourceKind(v: unknown): v is 'tree' | 'boulder' {
+  return v === 'tree' || v === 'boulder';
+}
+
 function isFacing(v: unknown): v is Facing {
   return v === 'up' || v === 'down' || v === 'left' || v === 'right';
 }
@@ -146,6 +150,17 @@ export function buildMapMeta(raw: TiledMapData): MapMeta {
     tile: toTile(o),
   }));
 
+  // M3 §8.1: clearable trees/boulders (axe → 5 wood, pickaxe → 3 stone). Parsed from the
+  // optional `resource_nodes` object layer (kind: tree|boulder). Absent layer ⇒ undefined
+  // (the field stays optional until every shipped map carries it — clearResourceNode
+  // degrades to UNKNOWN_NODE cleanly when missing).
+  const resourceNodes: NonNullable<MapMeta['resourceNodes']> = [];
+  for (const o of objectLayer(raw, 'resource_nodes')) {
+    const kind = prop(o, 'kind') ?? o.class ?? o.type;
+    if (!isResourceKind(kind)) continue;
+    resourceNodes.push({ id: o.name ?? `node_${String(o.id ?? 0)}`, kind, tile: toTile(o) });
+  }
+
   return {
     width: 64,
     height: 48,
@@ -157,6 +172,7 @@ export function buildMapMeta(raw: TiledMapData): MapMeta {
     pickupSpots,
     buildPlots,
     npcAnchors,
+    ...(resourceNodes.length > 0 ? { resourceNodes } : {}),
   };
 }
 
@@ -235,4 +251,23 @@ export const FALLBACK_MAP_META: MapMeta = {
     { id: 'build_greenhouse', rect: { x: 44, y: 37, w: 8, h: 6 } },
   ],
   npcAnchors: [],
+  // M3 §8.1: clearable trees (5 wood) along the wooded west wall + boulders (3 stone) on
+  // the rocky south/east edges — none overlap fields A/B/C, interactables, or build plots.
+  // A representative starter stand (the §8.1 ≈200 wood + 90 stone full stock belongs in the
+  // authored farm.tmj resource_nodes layer; FALLBACK exists only until that layer lands).
+  resourceNodes: [
+    { id: 'tree_w1', kind: 'tree', tile: { x: 2, y: 6 } },
+    { id: 'tree_w2', kind: 'tree', tile: { x: 4, y: 7 } },
+    { id: 'tree_w3', kind: 'tree', tile: { x: 2, y: 9 } },
+    { id: 'tree_w4', kind: 'tree', tile: { x: 5, y: 10 } },
+    { id: 'tree_w5', kind: 'tree', tile: { x: 3, y: 12 } },
+    { id: 'tree_n1', kind: 'tree', tile: { x: 44, y: 5 } },
+    { id: 'tree_n2', kind: 'tree', tile: { x: 46, y: 6 } },
+    { id: 'tree_n3', kind: 'tree', tile: { x: 50, y: 5 } },
+    { id: 'boulder_s1', kind: 'boulder', tile: { x: 6, y: 40 } },
+    { id: 'boulder_s2', kind: 'boulder', tile: { x: 8, y: 41 } },
+    { id: 'boulder_s3', kind: 'boulder', tile: { x: 12, y: 42 } },
+    { id: 'boulder_e1', kind: 'boulder', tile: { x: 58, y: 24 } },
+    { id: 'boulder_e2', kind: 'boulder', tile: { x: 60, y: 26 } },
+  ],
 };

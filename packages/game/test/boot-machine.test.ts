@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { runBootLoad, type BootDeps } from '../src/boot/boot-machine';
 import { introLetterFor } from '../src/boot/new-game';
 import { MemorySaveStorage } from '../src/storage/save-storage';
-import { makeRestorable, makeSaveDoc } from './helpers/save-fixture';
+import { makeRestorable, makeSaveDoc, makeSaveDocV1 } from './helpers/save-fixture';
 
 function deps(storage: MemorySaveStorage, overrides: Partial<BootDeps> = {}): BootDeps {
   return {
@@ -53,6 +53,24 @@ describe('runBootLoad (§10.4 state machine, M1 cut)', () => {
     const storage = new MemorySaveStorage();
     await storage.write({ schemaVersion: 0 }); // malformed (min version is 1)
     expect((await runBootLoad(deps(storage))).state).toBe('recovery');
+  });
+
+  it('v1 slot → MIGRATING → RUNNING with migration provenance (US37 retro seam)', async () => {
+    const storage = new MemorySaveStorage();
+    await storage.write(makeSaveDocV1());
+    const outcome = await runBootLoad(deps(storage));
+    expect(outcome.state).toBe('running');
+    if (outcome.state !== 'running') return;
+    expect(outcome.doc.schemaVersion).toBe(2);
+    expect(outcome.migratedFromVersion).toBe(1);
+  });
+
+  it('current-version resume carries no migration provenance (US37 seam)', async () => {
+    const storage = new MemorySaveStorage();
+    await storage.write(makeSaveDoc());
+    const outcome = await runBootLoad(deps(storage));
+    expect(outcome.state).toBe('running');
+    if (outcome.state === 'running') expect(outcome.migratedFromVersion).toBeUndefined();
   });
 
   it('newer version → TOO_NEW: read-only, never writes the slot', async () => {

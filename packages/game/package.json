@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-map.mjs && node scripts/export-map-meta.mjs && tsc --noEmit && vite build",
+    "build": "node scripts/check-map.mjs && node scripts/export-map-meta.mjs && node scripts/check-audio-assets.mjs && tsc --noEmit && vite build",
     "map:meta": "node scripts/check-map.mjs && node scripts/export-map-meta.mjs",
+    "assets:audio": "node assets-src/tools/build-audio-m3.mjs && node assets-src/tools/gen-manifest.mjs",
+    "check:audio": "node scripts/check-audio-assets.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

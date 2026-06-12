@@ -16,6 +16,7 @@ import type { WorldState } from '../../sim/types';
 import { formatGold } from '../format';
 import { BIN_PANEL, DEPTH } from '../layout';
 import { PALETTE } from '../palette';
+import { qualityOf, withQualityMark } from '../quality-view';
 import { safe } from '../safe';
 import { t } from '../strings';
 import type { UiPanelId } from '../ui-stack';
@@ -95,9 +96,13 @@ export class ShippingBinPanel implements Panel {
       const def = getItemDef(stack.itemId);
       const zone = this.addRowZone(p.x + 12, y, p.width / 2 - 24);
       this.rowObjects.push(
-        uiText(this.host.scene, p.x + 12, y, `${t(def.nameKey)} ×${stack.count} ↩`).setDepth(
-          DEPTH.panel + 1,
-        ),
+        uiText(
+          this.host.scene,
+          p.x + 12,
+          y,
+          // Quality double-encoded in text rows (◆银 / ★金 — §4.5; PRD 04 US45).
+          `${withQualityMark(t(def.nameKey), qualityOf(stack))} ×${stack.count} ↩`,
+        ).setDepth(DEPTH.panel + 1),
       );
       zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
         const count = pointer.event.shiftKey ? stack.count : 1;
@@ -114,11 +119,13 @@ export class ShippingBinPanel implements Panel {
     state.inventory.slots.forEach((stack, slot) => {
       if (!stack) return;
       const def = getItemDef(stack.itemId);
-      const sellable = def.category === 'crop' || def.category === 'material';
+      // M3: artisan goods consign too (GDD §6.1 寄售 row; PRD 04 US75).
+      const sellable =
+        def.category === 'crop' || def.category === 'material' || def.category === 'artisan_good';
       const y = p.y + 40 + row * ROW_HEIGHT;
       row += 1;
       const x = p.x + p.width / 2 + 12;
-      const label = `${t(def.nameKey)} ×${stack.count}${sellable ? ' →' : ''}`;
+      const label = `${withQualityMark(t(def.nameKey), qualityOf(stack))} ×${stack.count}${sellable ? ' →' : ''}`;
       this.rowObjects.push(
         uiText(this.host.scene, x, y, label, {
           color: sellable ? PALETTE.ui.text : PALETTE.ui.textDim,
@@ -176,13 +183,14 @@ export class ShippingBinPanel implements Panel {
     return this.host.state().economy.shippingBin.reduce((sum, stack) => sum + stack.count, 0);
   }
 
-  /** Estimated settlement: Σ unitSalePrice × count (display only; sim settles at night). */
+  /** Estimated settlement: Σ unitSalePrice × count (display only; sim settles at
+   *  night). Per-stack quality rides the §4.5 single pricing entry (PRD 04 US43). */
   private estimateGold(state: Readonly<WorldState>): number {
     return state.economy.shippingBin.reduce((sum, stack) => {
       const def = getItemDef(stack.itemId);
       const unit = safe(
         'unitSalePrice',
-        () => unitSalePrice(def, 'normal', { profession: state.progress.profession }),
+        () => unitSalePrice(def, qualityOf(stack), { profession: state.progress.profession }),
         def.sellPrice ?? 0,
       );
       return sum + unit * stack.count;

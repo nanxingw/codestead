@@ -1,15 +1,17 @@
 /**
- * serialize() ⇄ SaveDoc v1 schema conformance (GDD §10.2/§10.3; PRD 01 US98/US99).
+ * serialize() ⇄ SaveDoc schema conformance (GDD §10.2/§10.3; PRD 01 US98/US99).
  *
- * The storage layer runs SaveDocSchema.safeParse as its write-time self check; these
- * tests prove the sim's serialize() output ALWAYS satisfies the schema (a failure
- * there is by contract a programming bug — it must be caught here, not at write time),
- * and that hydration is tolerant per GDD §10.9.
+ * M3: the CURRENT document is SaveDoc v2 (GDD §10.6 migration chain) — serialize()
+ * emits the v2 world block (structures/sprinklers/farmhouse/unlockedZones/
+ * clearedResourceNodes) and the storage layer self-checks against SaveDocV2Schema.
+ * These tests prove the sim's serialize() output ALWAYS satisfies that schema (a
+ * failure there is by contract a programming bug — it must be caught here, not at
+ * write time), and that hydration is tolerant per GDD §10.9.
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { SaveDocSchema, SAVE_SCHEMA_VERSION } from '@codestead/shared';
-import type { SaveDoc, SaveMeta } from '@codestead/shared';
+import { SaveDocV2Schema, SAVE_SCHEMA_VERSION_V2 } from '@codestead/shared';
+import type { SaveDocV2, SaveMeta } from '@codestead/shared';
 
 import { createSim, newGameSim } from '../sim.js';
 import { canTill } from '../tiles.js';
@@ -28,8 +30,8 @@ const META: SaveMeta = {
   playTimeRealSeconds: 0,
 };
 
-function wrap(doc: ReturnType<ReturnType<typeof newGameSim>['serialize']>): SaveDoc {
-  return { schemaVersion: SAVE_SCHEMA_VERSION, meta: META, ...doc };
+function wrap(doc: ReturnType<ReturnType<typeof newGameSim>['serialize']>): SaveDocV2 {
+  return { schemaVersion: SAVE_SCHEMA_VERSION_V2, meta: META, ...doc };
 }
 
 // skipIf gates removed (M1 sim landed): a false probe is a loud red, never a silent skip.
@@ -40,7 +42,7 @@ it('probes: implementation landed', () => {
 describe('serialize() output is always SaveDocSchema-valid (US98)', () => {
   it('a fresh new game serializes to a schema-valid §10.2 document', () => {
     const doc = newGameSim('schema-fresh', TEST_MAP).serialize();
-    const parsed = SaveDocSchema.safeParse(wrap(doc));
+    const parsed = SaveDocV2Schema.safeParse(wrap(doc));
     expect(parsed.error?.issues ?? []).toEqual([]);
     expect(parsed.success).toBe(true);
     // §10.2 new-save row spot checks
@@ -57,7 +59,7 @@ describe('serialize() output is always SaveDocSchema-valid (US98)', () => {
     const sim = newGameSim('schema-week', TEST_MAP);
     runScriptR(sim, 7);
     const doc = sim.serialize();
-    const parsed = SaveDocSchema.safeParse(wrap(doc));
+    const parsed = SaveDocV2Schema.safeParse(wrap(doc));
     expect(parsed.error?.issues ?? []).toEqual([]);
     expect(parsed.success).toBe(true);
     // sparse keys obey the bounds-checked "x,y" regex baked into the schema
@@ -116,7 +118,12 @@ describe('tolerant hydration (GDD §10.9)', () => {
         wateredToday: false,
         crop: null,
       });
-      expect(sim.state.inventory.slots[1]).toBeNull();
+      // The unknown item is dropped entirely (gone from every slot); the now-free slot is
+      // backfilled by the §8.1 carpenter-tool grant the facade applies on load (axe/pickaxe,
+      // PRD 04 US32) — the point of THIS test is the unknown-id drop + warn, not slot index.
+      expect(
+        sim.state.inventory.slots.some((s) => s !== null && s.itemId === 'gadget_from_v9'),
+      ).toBe(false);
       expect(sim.state.economy.shippingBin).toEqual([stack('crop_turnip', 1)]);
       expect(warn).toHaveBeenCalled();
     } finally {
@@ -138,12 +145,32 @@ describe('porch-letter one-time semantics (US86 / backlog A-4)', () => {
     // Zero schema change (PRD 02 red line): it is a plain counter in SaveDoc v1.
     const doc = sim.serialize();
     expect(doc.progress.counters['introLetterRead']).toBe(1);
-    expect(SaveDocSchema.safeParse(wrap(doc)).success).toBe(true);
+    expect(SaveDocV2Schema.safeParse(wrap(doc)).success).toBe(true);
 
     // Restore keeps the read state — the porch highlight never comes back.
     const restored = createSim(doc, TEST_MAP);
     expect(restored.state.progress.counters.introLetterRead).toBe(1);
     restored.markIntroLetterRead(); // still idempotent after a reload
     expect(restored.state.progress.counters.introLetterRead).toBe(1);
+  });
+});
+
+describe('US39 settlement-hint one-shot semantics (GDD §5.3 「只温和提示一次」)', () => {
+  it('markProfessionHintShown burns the flag once, idempotently, and round-trips', () => {
+    const sim = newGameSim('hint-probe', TEST_MAP);
+    expect(sim.state.progress.counters.professionHintShown).toBeUndefined();
+    sim.markProfessionHintShown();
+    expect(sim.state.progress.counters.professionHintShown).toBe(1);
+    sim.markProfessionHintShown(); // repeat shows are no-ops — the desk waits silently
+    expect(sim.state.progress.counters.professionHintShown).toBe(1);
+
+    // Counter-as-flag (introLetterRead precedent): plain counter, zero schema change.
+    const doc = sim.serialize();
+    expect(doc.progress.counters['professionHintShown']).toBe(1);
+    expect(SaveDocV2Schema.safeParse(wrap(doc)).success).toBe(true);
+
+    // Restore keeps the burned state — the hint never repeats across reloads.
+    const restored = createSim(doc, TEST_MAP);
+    expect(restored.state.progress.counters.professionHintShown).toBe(1);
   });
 });

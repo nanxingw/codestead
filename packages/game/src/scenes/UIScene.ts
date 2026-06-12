@@ -1,7 +1,11 @@
 import Phaser from 'phaser';
 
-import { SFX, type SfxKey } from '../AssetKeys';
-import { INVENTORY } from '../sim/data/constants';
+import { SFX, type SfxKey, type SfxM3Key } from '../AssetKeys';
+import { UI_CUES } from '../audio/sfx-map';
+import { BLUEPRINTS } from '../sim/data/buildings';
+import { INVENTORY, M1_LEVEL_CAP } from '../sim/data/constants';
+import { effectiveLevel } from '../sim/leveling';
+import { retroLevelUpEvents } from '../sim/profession';
 import { tilledCapForLevel } from '../sim/tiles';
 import type { DaySummary, PauseSource, SimCommand, SimEvent, WorldState } from '../sim/types';
 import { resolveUiContext, type UiContext } from '../ui/context';
@@ -13,10 +17,17 @@ import { TopRightPanel } from '../ui/hud/top-right-panel';
 import { NotificationsModel } from '../ui/notifications';
 import type { Panel, UiHost } from '../ui/panels/host';
 import { AchievementsPanel } from '../ui/panels/achievements-panel';
+import { BuildCatalogPanel, type BuildTab } from '../ui/panels/build-catalog-panel';
+import { BuildConfirmPanel } from '../ui/panels/build-confirm-panel';
+import type { BuildConfirmRequest } from '../ui/panels/build-model';
+import { CodexPanel } from '../ui/panels/codex-panel';
 import { SleepConfirmPanel } from '../ui/panels/confirm-dialog';
+import { CoopPanel } from '../ui/panels/coop-panel';
 import { DaySummaryPanel } from '../ui/panels/day-summary-panel';
 import { InventoryPanel } from '../ui/panels/inventory-panel';
 import { PauseMenuPanel } from '../ui/panels/pause-menu';
+import { ProcessingPanel } from '../ui/panels/processing-panel';
+import { ProfessionPanel } from '../ui/panels/profession-panel';
 import { ReadingPanel } from '../ui/panels/reading-panel';
 import { SessionSettingsPanel } from '../ui/panels/session-settings-panel';
 import { SettingsPanel } from '../ui/panels/settings-panel';
@@ -26,7 +37,19 @@ import { safe } from '../ui/safe';
 import { SettingsStore } from '../ui/settings-store';
 import { t } from '../ui/strings';
 import { UiStackModel, type UiPanelId } from '../ui/ui-stack';
-import { WORLD_EVENTS, type DaySummaryPayload, type InteractablePayload } from '../world/events';
+import {
+  BUILD_EVENTS,
+  getBuildController,
+  type CatalogReturnPayload,
+  type ConfirmRequestPayload,
+  type StructureInteractPayload,
+} from '../world/build-bridge';
+import {
+  REGISTRY_KEYS,
+  WORLD_EVENTS,
+  type DaySummaryPayload,
+  type InteractablePayload,
+} from '../world/events';
 
 /** Keys are swallowed for this long after a panel opens so the same world-layer E
  * keydown that opened a panel cannot immediately activate/close it. */
@@ -115,7 +138,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       dispatch: (command) => this.dispatch(command),
       toast: (key, params) => this.toastText(t(key, params)),
       closeTop: () => this.closeTop(),
-      openChild: (id) => this.openPanel(id),
+      openChild: (id, data) => this.openPanel(id, data),
       closeAll: () => this.closeAll(),
       reducedMotion: () => this.settingsStore.reducedMotionActive(),
       playSfx: (key) => this.playSfx(key),
@@ -139,10 +162,16 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       null,
     );
 
-    // Push persisted volume into the audio system at boot (GDD §10.7 sync read).
+    // Push persisted volumes into the audio system at boot (GDD §10.7 sync read).
+    // M3: the four-channel push (master/muted/bgm/sfx/ui — PRD 04 US56) supersedes
+    // setMasterVolume where implemented; the master-only call stays as the fallback.
     const audio = this.settingsStore.get().audio;
-    ctx.audio?.setMasterVolume(audio.master, audio.muted);
-    this.settingsStore.onChange((s) => ctx.audio?.setMasterVolume(s.audio.master, s.audio.muted));
+    const pushAudio = (s: typeof audio): void => {
+      if (ctx.audio?.setChannelVolumes) ctx.audio.setChannelVolumes(s);
+      else ctx.audio?.setMasterVolume(s.master, s.muted);
+    };
+    pushAudio(audio);
+    this.settingsStore.onChange((s) => pushAudio(s.audio));
 
     this.input.keyboard?.addCapture('TAB');
     this.input.mouse?.disableContextMenu(); // right-click = ×5 in shop (GDD §6.8)
@@ -155,16 +184,53 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     // panels here; the day summary opens only after the world's night fade-out.
     this.game.events.on(WORLD_EVENTS.interactable, this.onWorldInteractable);
     this.game.events.on(WORLD_EVENTS.daySummary, this.onWorldDaySummary);
+    // M3 build bridge (world/build-bridge.ts): PLACING lives world-side, the
+    // CATALOG/CONFIRM panels live here (§8.3 machine spans both scenes).
+    this.game.events.on(BUILD_EVENTS.confirmRequest, this.onBuildConfirmRequest);
+    this.game.events.on(BUILD_EVENTS.catalogReturn, this.onBuildCatalogReturn);
+    this.game.events.on(BUILD_EVENTS.structureInteract, this.onStructureInteract);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.events.off(WORLD_EVENTS.interactable, this.onWorldInteractable);
       this.game.events.off(WORLD_EVENTS.daySummary, this.onWorldDaySummary);
+      this.game.events.off(BUILD_EVENTS.confirmRequest, this.onBuildConfirmRequest);
+      this.game.events.off(BUILD_EVENTS.catalogReturn, this.onBuildCatalogReturn);
+      this.game.events.off(BUILD_EVENTS.structureInteract, this.onStructureInteract);
       this.unsubscribeSim?.();
       this.feedbackView?.clear();
       this.sessionHud?.destroy();
       this.sessionHud = null;
       this.closeAll();
     });
+
+    this.consumeRetroLevelUps();
+  }
+
+  /**
+   * US37 retro catch-up (GDD §5.3 M1→M3 迁移; §8.2 「一次性回溯解锁」): when the
+   * boot/import path migrated a v1 save it leaves the source schemaVersion on the
+   * registry (one-shot, menuEntry precedent). A v1 save displayed at most Lv5
+   * (M1_LEVEL_CAP), so banners replay Lv6..N through the regular FarmLevelUp
+   * handler — same copy, same FIFO queue (打扰预算: ≤5 banners + 1 toast ≤ 8) —
+   * plus the quiet 「木匠服务已开通」 line once build mode (lowest blueprint
+   * unlock, Lv3) is already open. Presentation only: zone fences/blueprints/shop
+   * rows all derive from xp at hydrate, so skipping this changes no rules.
+   */
+  private consumeRetroLevelUps(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const fromVersion = this.registry.get(REGISTRY_KEYS.retroFromVersion) as number | undefined;
+    if (typeof fromVersion !== 'number') return;
+    this.registry.remove(REGISTRY_KEYS.retroFromVersion);
+    if (fromVersion > 1) return; // only v1 had a lower visible level cap (M1 min(·,5))
+    const xp = ctx.sim.state.progress.xp;
+    for (const event of retroLevelUpEvents(xp, M1_LEVEL_CAP)) {
+      this.onSimEvent(event);
+    }
+    const buildModeLevel = Math.min(...BLUEPRINTS.map((b) => b.unlock.farmLevel));
+    if (effectiveLevel(xp) >= buildModeLevel) {
+      this.notifications.toast(t('toast.carpenter_service'), this.time.now);
+    }
   }
 
   // ---- world-scene bridge (GDD §1.7: fixed interactables never enter the sim) ----
@@ -203,6 +269,47 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     this.nightTransition = false;
     this.closeAll();
     this.openPanel('daySummary', payload.summary);
+  };
+
+  // ---- M3 build bridge (world/build-bridge.ts; GDD §8.3) ----
+
+  /** Building/farmhouse order reached the CONFIRM arrow — dialog, tick stops (US8). */
+  private readonly onBuildConfirmRequest = (payload: ConfirmRequestPayload): void => {
+    if (!this.ctx || this.nightTransition) return;
+    this.closeAll(); // PLACING has an empty stack; be defensive about stragglers
+    this.openPanel('buildConfirm', payload.request);
+  };
+
+  /** PLACING backed out (Esc/right-click) or exhausted materials (§8.3/§8.5). */
+  private readonly onBuildCatalogReturn = (payload: CatalogReturnPayload): void => {
+    if (!this.ctx || this.nightTransition) return;
+    if (payload.toastKey !== undefined) this.toastText(t(payload.toastKey));
+    if (this.stack.depth() === 0) this.openPanel('buildCatalog', payload.tab);
+  };
+
+  /** E on a built structure: route to its facility panel (PRD 04 US15/US16/US19/US21). */
+  private readonly onStructureInteract = (payload: StructureInteractPayload): void => {
+    if (!this.ctx || this.nightTransition || this.stack.depth() > 0) return;
+    switch (payload.defId) {
+      case 'coop':
+        this.openPanel('coop', payload.instanceId);
+        return;
+      case 'workshop':
+      case 'drying_rack':
+        this.openPanel('processing', payload.instanceId);
+        return;
+      case 'bench': // 「候车室」彩蛋 (§8.2): sit and idle for a moment
+        this.toastText(t('toast.bench_sit'));
+        return;
+      case 'storage_chest': // storage UI is not in this batch — recorded openQuestion
+        this.toastText(t('toast.chest_hint'));
+        return;
+      case 'greenhouse': // interior scenes land with the interiors batch
+        this.toastText(t('toast.greenhouse_hint'));
+        return;
+      default:
+        return; // fence/path/lamp/statue: pure scenery
+    }
   };
 
   override update(time: number): void {
@@ -249,7 +356,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
   }
 
   openSign(signId: string): void {
-    this.openPanel('sign', undefined, signId);
+    this.openPanel('sign', signId);
   }
 
   toastText(text: string): void {
@@ -258,13 +365,13 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
 
   // ---- stack management (invariant: depth > 0 ⇔ UI pause sources active) ----
 
-  private openPanel(id: UiPanelId, summary?: DaySummary, signId?: string): void {
+  private openPanel(id: UiPanelId, data?: unknown): void {
     if (!this.ctx) return;
     if (!this.stack.push(id)) return; // mutual exclusion (GDD §6.5)
     // Hide the covered parent (panels share DEPTH tokens, so a visible parent's
     // depth-(panel+1) widgets would bleed through the child's panel background).
     this.panels.at(-1)?.setCovered?.(true);
-    this.panels.push(this.buildPanel(id, summary, signId));
+    this.panels.push(this.buildPanel(id, data));
     this.topOpenedAt = this.time.now;
     this.syncPauseSources();
   }
@@ -312,7 +419,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     this.sessionHud?.setSuppressed(this.panels.some((p) => p.id === 'daySummary'));
   }
 
-  private buildPanel(id: UiPanelId, summary?: DaySummary, signId?: string): Panel {
+  private buildPanel(id: UiPanelId, data?: unknown): Panel {
     switch (id) {
       case 'inventory':
         return new InventoryPanel(this.host);
@@ -327,19 +434,38 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
       case 'sessionSettings': // 设置 → 会话面板 (M2, hud-sessions §9/§12-D6)
         return new SessionSettingsPanel(this.host);
       case 'achievements':
-        return new AchievementsPanel(this.host); // M1.5 成就 tab (PRD 02 US12)
+        return new AchievementsPanel(this.host); // M1.5 成就 tab + M3 paging (PRD 04 §I)
       case 'keysHelp':
       case 'letter':
       case 'board':
         return new ReadingPanel(this.host, id);
       case 'sign':
-        return new ReadingPanel(this.host, 'sign', signId); // US5 / backlog A-3
+        return new ReadingPanel(this.host, 'sign', data as string | undefined); // US5 / A-3
       case 'sleepConfirm':
         return new SleepConfirmPanel(this.host);
       case 'daySummary': {
-        if (!summary) throw new Error('daySummary requires a DaySummary payload');
-        return new DaySummaryPanel(this.host, summary);
+        if (!data) throw new Error('daySummary requires a DaySummary payload');
+        return new DaySummaryPanel(this.host, data as DaySummary);
       }
+      // ---- M3 build & facility panels (GDD §8.3/§5.3/§5.8; PRD 04) ----
+      case 'buildCatalog':
+        return new BuildCatalogPanel(this.host, data as BuildTab | undefined);
+      case 'buildConfirm': {
+        if (!data) throw new Error('buildConfirm requires a BuildConfirmRequest payload');
+        return new BuildConfirmPanel(this.host, data as BuildConfirmRequest);
+      }
+      case 'coop': {
+        if (typeof data !== 'string') throw new Error('coop requires an instanceId payload');
+        return new CoopPanel(this.host, data);
+      }
+      case 'processing': {
+        if (typeof data !== 'string') throw new Error('processing requires an instanceId payload');
+        return new ProcessingPanel(this.host, data);
+      }
+      case 'profession':
+        return new ProfessionPanel(this.host);
+      case 'codex':
+        return new CodexPanel(this.host);
     }
   }
 
@@ -366,13 +492,13 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
         this.playSfx(SFX.coins);
         break;
       case 'AchievementUnlocked':
-        // Bottom-right 2.5s non-modal toast (GDD §5.8; PRD 02 US2). SFX reuses one of
-        // the 8 M1 sounds (§11.5 audio convergence) — a dedicated jingle is M3.
+        // Bottom-right 2.5s non-modal toast (GDD §5.8; PRD 02 US2). M3 graduates the
+        // SFX from the reused item_get to the dedicated collect jingle (§11.5).
         this.notifications.achievement(
           t('achievement.toast', { name: t(`achv.${event.id}.name`) }),
           now,
         );
-        this.playSfx(SFX.itemGet);
+        this.playSfx(UI_CUES.achievementUnlocked.key);
         break;
       case 'CropHarvested': {
         // The pick that exhausts a regrow crop's pod season leaves the old vine behind
@@ -401,11 +527,28 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
           now,
         );
         this.playSfx(SFX.jingleLevelup);
+        // The US39 certificate-desk hint lives on the settlement screen (the
+        // day-summary panel shows it once via professionHintPending and burns the
+        // sim-side flag) — no duplicate toast here (GDD §5.3 「只温和提示一次」).
         break;
       }
       case 'zoneUnlocked':
         this.notifications.banner(
           t('banner.zone_unlocked', { zone: t(`zone.${event.zoneId}`) }),
+          now,
+        );
+        break;
+      case 'ConstructionCompleted':
+        // 竣工无弹窗: confetti is world-side; here only the banner line (§8.3, US11).
+        this.notifications.banner(
+          t('banner.construction_done', { name: t(`blueprint.${event.defId}`) }),
+          now,
+        );
+        this.playSfx(SFX.jingleLevelup); // build_complete beat lands with the audio pass
+        break;
+      case 'ProfessionChosen':
+        this.notifications.banner(
+          t('banner.profession', { name: t(`profession.${event.profession}`) }),
           now,
         );
         break;
@@ -429,7 +572,7 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     this.panels[this.panels.length - 1]?.refresh();
   }
 
-  private playSfx(key: SfxKey): void {
+  private playSfx(key: SfxKey | SfxM3Key): void {
     this.ctx?.audio?.play(key);
   }
 
@@ -474,9 +617,20 @@ export class UIScene extends Phaser.Scene implements UiSceneApi {
     }
     // Stack empty — play-mode UI keys only (world movement/actions live in WorldScene).
     if (this.nightTransition) return; // nothing opens over the night fade (GDD §6.5)
+    const placing = getBuildController(this)?.isActive() === true;
     switch (event.key) {
       case 'Escape':
+        if (placing) {
+          // PLACING → back to CATALOG (§8.3 Esc/右键取消; uncommitted = 未扣费).
+          getBuildController(this)?.cancelToCatalog();
+          return;
+        }
         this.openPanel('pauseMenu');
+        return;
+      case 'b':
+      case 'B':
+        // B = 建造目录 (GDD §6.8 keymap; appendix B-5; PRD 04 US1).
+        if (!placing) this.openPanel('buildCatalog');
         return;
       case 'Tab':
       case 'i':

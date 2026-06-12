@@ -14,7 +14,7 @@
  * outcome; the driver holds the 'boot_gate' pause source until the first
  * "back to the farm" click (which also unlocks audio autoplay, GDD §2.4/§11.6).
  */
-import type { SaveDoc, RestorableSaveDoc } from '@codestead/shared';
+import type { SaveDocV2, RestorableSaveDocV2 } from '@codestead/shared';
 
 import {
   advanceMeta,
@@ -32,11 +32,17 @@ export type BootOutcome =
   /** Ready to play. `persisted` is false only when the new-game first write failed (IDB). */
   | {
       state: 'running';
-      doc: SaveDoc;
+      doc: SaveDocV2;
       isNewGame: boolean;
       persisted: boolean;
       /** Tolerant-load downgrade notes (§10.9) — surface gently, never a scary modal. */
       warnings: string[];
+      /**
+       * Source schemaVersion when the slot was migrated this boot (US37 retro
+       * seam — the scene layer replays Lv6..N banners for v1 saves); absent for
+       * current-version and new-game outcomes.
+       */
+      migratedFromVersion?: number;
     }
   /** Low-pressure two-option screen: [import JSON] [new farm]; slot data untouched. */
   | { state: 'recovery'; reason: RecoveryReason; issues: string[] }
@@ -50,7 +56,7 @@ export interface BootDeps {
    * mapMeta).serialize()` (sim owns the §10.2 initial values: gold 100, day 1,
    * 6:00, spring, forced-sunny day 1, hoe/can in slots 0/1, spawn from MapMeta).
    */
-  createNewGame: () => RestorableSaveDoc;
+  createNewGame: () => RestorableSaveDocV2;
   appVersion: string;
   /** Injectable wall clock (meta is display-only); defaults to Date.now. */
   now?: () => number;
@@ -101,7 +107,7 @@ export async function runBootLoad(deps: BootDeps): Promise<BootOutcome> {
           issues: [`no migration path from save version ${classified.foundVersion}`],
         };
       }
-      return validateAndRun(migrated.doc);
+      return validateAndRun(migrated.doc, classified.foundVersion);
     }
     case 'too_new':
       return { state: 'too_new', foundVersion: classified.foundVersion, raw: classified.raw };
@@ -139,7 +145,7 @@ export async function startNewGame(deps: BootDeps, nowMs: number): Promise<BootO
   return { state: 'running', doc: validated.doc, isNewGame: true, persisted, warnings: [] };
 }
 
-function validateAndRun(raw: unknown): BootOutcome {
+function validateAndRun(raw: unknown, migratedFromVersion?: number): BootOutcome {
   const validated = validateSaveDoc(raw);
   if (!validated.ok) {
     return { state: 'recovery', reason: 'schema', issues: validated.issues };
@@ -151,5 +157,6 @@ function validateAndRun(raw: unknown): BootOutcome {
     isNewGame: false,
     persisted: true,
     warnings: sanitized.warnings,
+    ...(migratedFromVersion !== undefined ? { migratedFromVersion } : {}),
   };
 }

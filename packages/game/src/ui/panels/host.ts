@@ -37,8 +37,10 @@ export interface UiHost {
   toast(key: string, params?: Record<string, string | number>): void;
   /** Pop the top panel off the UI stack. */
   closeTop(): void;
-  /** Push a nested panel (pauseMenu → settings / keysHelp only, GDD §6.5). */
-  openChild(id: UiPanelId): void;
+  /** Push a nested panel (NESTABLE children only, GDD §6.5). `data` is the panel
+   *  payload (M3: BuildConfirmRequest for buildConfirm; instanceId for facility
+   *  panels) — same plumbing as the daySummary payload. */
+  openChild(id: UiPanelId, data?: unknown): void;
   /** Clear the whole stack (回主菜单 path, §6.5). */
   closeAll(): void;
   reducedMotion(): boolean;

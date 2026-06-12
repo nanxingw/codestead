@@ -263,7 +263,9 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
     milestone: 'M3',
     predicate: (view) => view.xp >= LV10_XP,
     progress: (view) => ({ current: Math.min(view.xp, LV10_XP), target: LV10_XP }),
-    reward: { xp: 0, gold: 1_000 }, // + 纪念雕像 (item form deferred to M3, PRD 02 §7)
+    // + 纪念雕像 — physical form = the Lv10-unlocked `memorial_statue` blueprint
+    // (data/buildings.ts, free/limit 1), not an extra reward field here (§5.3/§5.6).
+    reward: { xp: 0, gold: 1_000 },
   },
   {
     id: 'mastery',
@@ -271,7 +273,9 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
     milestone: 'M3',
     predicate: (view) => view.xp >= XP_CAP,
     progress: (view) => ({ current: Math.min(view.xp, XP_CAP), target: XP_CAP }),
-    reward: { xp: 0, gold: 0 }, // + 金色牌匾 (item form deferred to M3, PRD 02 §7)
+    // + 金色牌匾 — still display-only in M3 (achievements page); no entity/blueprint
+    // exists for it in the §8.2 tables (open question for the owner/GDD backfill).
+    reward: { xp: 0, gold: 0 },
   },
 ];
 

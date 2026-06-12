@@ -20,9 +20,21 @@
  *   - syncPlayer(player) — movement is render-side (§1.6); the scene must push
  *     tile/facing into the sim so serialize() persists the real position.
  */
-import type { RestorableSaveDoc, SaveQuests } from '@codestead/shared';
+import type { RestorableSaveDoc, RestorableSaveDocV2, SaveQuests } from '@codestead/shared';
 
 import { checkAchievements } from './achievements.js';
+import {
+  collectProcessedGood,
+  demolishStructure,
+  moveStructure,
+  orderFarmhouseUpgrade,
+  placeSprinkler,
+  placeStructure,
+  sanitizeStructuresInPlace,
+  startProcessingJob,
+} from './building.js';
+import { grantCarpenterTools } from './building.js';
+import { buyHen, collectEggs, sellHen } from './coop.js';
 import { ECONOMY, INVENTORY, TIME } from './data/constants.js';
 import { CROPS_BY_ID } from './data/crops.js';
 import type { CropId } from './data/crops.js';
@@ -30,18 +42,21 @@ import { ITEMS_BY_ID } from './data/items.js';
 import type { ItemId } from './data/items.js';
 import {
   buy,
+  buyMaterial,
   catalog,
   depositAllToBin,
   depositToBin,
+  expandInventory,
   refundSeeds,
   withdrawFromBin,
 } from './economy.js';
 import type { ShopEntryView } from './economy.js';
 import { applyAction, isOldVine, queryAction } from './farming.js';
 import { discardAt, move, select, splitAt } from './inventory.js';
+import { chooseProfession, markProfessionHintShownInPlace } from './profession.js';
 import { bumpCounterInPlace, effectiveLevel } from './leveling.js';
 import { runNight } from './night-update.js';
-import { pickup, refreshPickups } from './pickups.js';
+import { clearResourceNode, pickup, refreshPickups } from './pickups.js';
 import { getTile, tilledCapForLevel, tilledCount } from './tiles.js';
 import { advanceMinutes as advanceClock, rngFromSeed, rollWeather, timeView } from './time.js';
 import type {
@@ -85,8 +100,8 @@ export interface SimApi {
   /** Subscribe to sim events; returns an unsubscribe function. */
   on(listener: (event: SimEvent) => void): () => void;
 
-  /** Meta-less save snapshot (storage layer adds schemaVersion + meta). */
-  serialize(): RestorableSaveDoc;
+  /** Meta-less v2 save snapshot (storage layer adds schemaVersion + meta). */
+  serialize(): RestorableSaveDocV2;
 
   // ---- M1 additive extensions (see header apiDrift note) ----
 
@@ -108,6 +123,14 @@ export interface SimApi {
    * are no-ops, keeping replays byte-stable). Counter-based, zero schema change.
    */
   markIntroLetterRead(): void;
+
+  /**
+   * US39 one-shot settlement hint (GDD §5.3 「达成当日结算屏温和提示一次」): the
+   * day-summary panel shows the certificate-desk line when
+   * profession.professionHintPending(state) and then burns the flag here
+   * (idempotent counter-as-flag, same precedent as markIntroLetterRead).
+   */
+  markProfessionHintShown(): void;
 }
 
 /**
@@ -130,7 +153,13 @@ function makeSim(
   map: MapMeta,
   options: SimOptions = {},
 ): SimApi {
-  let state = initial;
+  // M3 §8.1: the carpenter axe + pickaxe are the labor path's tools. Granting here covers
+  // BOTH entry points (newGameSim and createSim→hydrate flow through makeSim) with one
+  // idempotent, zero-loss call — already-owned tools are a no-op, a full bag postpones the
+  // grant without loss, and replays stay byte-stable (the grant has no rng). This is the
+  // "木匠服务已开通" hand-out PRD 04 open question 8 left to the facade. Events are dropped:
+  // the grant is a silent baseline like the starting hoe/can, not a pickup notification.
+  let state = grantCarpenterTools(initial).state;
   const achievementsOn = options.achievements === true;
   const listeners = new Set<(event: SimEvent) => void>();
 
@@ -266,10 +295,63 @@ function makeSim(
         state = result.state;
         return result.events;
       }
+      // ---- M3 material economy routes (PRD 04 §E/§H): the §8.1 labor path (clear), the
+      // anti-soft-lock shop floor (buyMaterial), and the §6.2 backpack QoL (expand).
+      // Blocked attempts return [] — the UI derives the single reason from state. ----
+      case 'clearResourceNode':
+        return applyGuardedResult(clearResourceNode(state, map, command.nodeId));
+      case 'buyMaterial': {
+        const result = buyMaterial(state, command.material, command.requested);
+        if ('blocked' in result) return [];
+        state = result.state;
+        return result.events;
+      }
+      case 'expandInventory': {
+        const result = expandInventory(state);
+        if ('blocked' in result) return [];
+        state = result.state;
+        return result.events;
+      }
+      // ---- M3 build / coop / profession routes (PRD 04 §N73; task contract):
+      // blocked attempts return [] — the UI derives the single reason from state
+      // (canPlace/refundFor/canChooseProfession are pure read-only queries). ----
+      case 'placeStructure':
+        return applyGuardedResult(placeStructure(state, command.defId, command.origin));
+      case 'placeSprinkler':
+        return applyGuardedResult(placeSprinkler(state, command.defId, command.tile));
+      case 'demolishStructure':
+        return applyGuardedResult(demolishStructure(state, command.instanceId));
+      case 'moveStructure':
+        return applyGuardedResult(moveStructure(state, command.instanceId, command.origin));
+      case 'orderFarmhouseUpgrade':
+        return applyGuardedResult(orderFarmhouseUpgrade(state, command.defId));
+      case 'startProcessingJob':
+        return applyGuardedResult(
+          startProcessingJob(state, command.instanceId, command.slot, command.inputItemId),
+        );
+      case 'collectProcessedGood':
+        return applyGuardedResult(collectProcessedGood(state, command.instanceId, command.slot));
+      case 'buyHen':
+        return applyGuardedResult(buyHen(state, command.instanceId));
+      case 'sellHen':
+        return applyGuardedResult(sellHen(state, command.instanceId));
+      case 'collectEggs':
+        return applyGuardedResult(collectEggs(state, command.instanceId));
+      case 'chooseProfession':
+        return applyGuardedResult(chooseProfession(state, command.profession));
       case 'sleep': {
         return runNightFlow().events;
       }
     }
+  }
+
+  /** Shared ok/blocked routing for the M3 guarded reducers (see the case comments). */
+  function applyGuardedResult(
+    result: { ok: true; state: WorldState; events: SimEvent[] } | { ok: false; error: string },
+  ): SimEvent[] {
+    if (!result.ok) return [];
+    state = result.state;
+    return result.events;
   }
 
   return {
@@ -309,7 +391,7 @@ function makeSim(
         listeners.delete(listener);
       };
     },
-    serialize(): RestorableSaveDoc {
+    serialize(): RestorableSaveDocV2 {
       return serializeWorld(state, quests);
     },
     view(): TimeView {
@@ -334,6 +416,13 @@ function makeSim(
       state = next;
       emit(sweepAchievements()); // counter moved outside dispatch — keep the sweep contract
     },
+    markProfessionHintShown(): void {
+      if ((state.progress.counters.professionHintShown ?? 0) > 0) return;
+      const next = structuredClone(state);
+      markProfessionHintShownInPlace(next);
+      state = next;
+      emit(sweepAchievements()); // counter moved outside dispatch — keep the sweep contract
+    },
   };
 }
 
@@ -341,7 +430,7 @@ function makeSim(
 
 const HARVESTED_PREFIX = 'harvestedCrops:';
 
-function serializeWorld(state: WorldState, quests: SaveQuests): RestorableSaveDoc {
+function serializeWorld(state: WorldState, quests: SaveQuests): RestorableSaveDocV2 {
   const counters: Record<string, number> = {};
   for (const [key, value] of Object.entries(state.progress.counters)) {
     if (typeof value === 'number') counters[key] = value;
@@ -375,6 +464,12 @@ function serializeWorld(state: WorldState, quests: SaveQuests): RestorableSaveDo
     world: {
       farmTiles: structuredClone(state.farm.tiles),
       shippingBin: structuredClone(state.economy.shippingBin),
+      // ---- v2 blocks (GDD §8.4/§10.2; BuildModeState never enters the save) ----
+      structures: structuredClone(state.structures ?? []),
+      sprinklers: structuredClone(state.sprinklers ?? []),
+      farmhouse: structuredClone(state.farmhouse ?? { stage: 0, construction: null }),
+      unlockedZones: [...state.farm.unlockedZones], // B-2: persisted from v2 on
+      clearedResourceNodes: [...(state.clearedResourceNodes ?? [])],
     },
     progress: {
       xp: state.progress.xp,
@@ -395,17 +490,29 @@ function serializeWorld(state: WorldState, quests: SaveQuests): RestorableSaveDo
 }
 
 /**
+ * The restore input: storage migrates everything to v2 before the sim sees it, but the
+ * v1 restorable shape stays accepted (a strict superset relationship) so M1-era test
+ * fixtures and the migration-equivalence suites keep exercising the same path.
+ */
+export type RestorableInput = RestorableSaveDoc | RestorableSaveDocV2;
+
+type V2WorldExtras = Partial<Omit<RestorableSaveDocV2['world'], 'farmTiles' | 'shippingBin'>>;
+
+/**
  * Tolerant hydration (GDD §10.9): unknown cropId → tile degrades to empty tilled soil;
  * unknown itemId → slot null / bin line dropped; everything logged with console.warn.
- * Runtime-only fields not present in SaveDoc v1 are re-derived:
- *   - farm.unlockedZones from effectiveLevel(xp) (the save has no zone field; see the
- *     derivation note at the assignment below);
+ * Runtime-only fields not present in the save are re-derived:
+ *   - farm.unlockedZones: union of the persisted v2 set (B-2) and the xp-derived set —
+ *     reachable area never shrinks across save/load (§1.4 / PRD 01 US10);
  *   - pickups via refreshPickups (the save has no pickup field) — reloading restores
- *     today's forage; recorded as an open question in the M1 workflow;
+ *     today's forage; recorded as an open question in the M1 workflow (B-7 pending);
  *   - dayLog starts empty (mid-day reload loses only the summary's "today" lines);
  *   - newEntriesSeenDay starts empty (the NEW badge does not survive a reload).
+ * M3: the v2 carriers (structures/sprinklers/farmhouse/clearedResourceNodes) hydrate
+ * with empty defaults for v1-shaped inputs, then pass through the §8.5 import
+ * sanitiser (illegal entities reclaimed at 100%, never silently deleted — US70).
  */
-function hydrate(save: RestorableSaveDoc, map: MapMeta): { state: WorldState; quests: SaveQuests } {
+function hydrate(save: RestorableInput, map: MapMeta): { state: WorldState; quests: SaveQuests } {
   const tiles: Record<TileKey, TileState> = {};
   for (const [key, tile] of Object.entries(save.world.farmTiles)) {
     let crop: CropState | null = null;
@@ -451,17 +558,18 @@ function hydrate(save: RestorableSaveDoc, map: MapMeta): { state: WorldState; qu
     if (count > 0) counters[`${HARVESTED_PREFIX}${cropId}`] ??= count;
   }
 
-  // SaveDoc v1 has no unlockedZones field. Re-derive from effectiveLevel(xp): every
-  // zone whose farmLevel the player has reached is open after a reload — reachable
-  // area never shrinks across save/load (§1.4 / PRD 01 US10). Autosave runs at night,
-  // AFTER pendingZoneUnlocks applied that morning's unlocks, so level-derived zones
-  // are exactly the live set on every normal load. Known deviation: a manual mid-day
+  // unlockedZones: the persisted v2 set (B-2, absent on v1-shaped input) unioned with
+  // the xp-derived set — the union keeps the M1 guarantee that reachable area never
+  // shrinks across save/load (§1.4 / PRD 01 US10) and makes v1→v2 loads byte-equal to
+  // the old derivation. Known benign deviation unchanged from M1: a manual mid-day
   // reload on a level-up day opens the zone a few hours before the next-6:00 rule
-  // would (derivation can only over-open, never re-fence). Persisting unlockedZones
-  // in SaveDoc is deferred to an owner ruling (schema change, GDD §10.2).
+  // would (derivation can only over-open, never re-fence).
+  const extras: V2WorldExtras = save.world as V2WorldExtras;
+  const knownZones = new Set(map.unlockGroups.map((g) => g.zoneId));
   const unlockedZones = [
     ...new Set([
       'field_a',
+      ...(extras.unlockedZones ?? []).filter((z) => knownZones.has(z) || z === 'field_a'),
       ...map.unlockGroups
         .filter((g) => g.farmLevel <= effectiveLevel(save.progress.xp))
         .map((g) => g.zoneId),
@@ -499,13 +607,50 @@ function hydrate(save: RestorableSaveDoc, map: MapMeta): { state: WorldState; qu
     },
     pickups: [],
     dayLog: [],
+    // M3 carriers (empty defaults for v1-shaped input; see header note).
+    structures: structuredClone(extras.structures ?? []),
+    sprinklers: structuredClone(extras.sprinklers ?? []),
+    farmhouse: structuredClone(extras.farmhouse ?? { stage: 0, construction: null }),
+    clearedResourceNodes: [...(extras.clearedResourceNodes ?? [])],
   };
+  // Tolerant pass over structure contents (§10.9 unknown-id discipline, same as the
+  // inventory above): unknown items in chest slots / processing jobs degrade with a
+  // warning, never a crash.
+  for (const s of state.structures ?? []) {
+    if (s.data?.kind === 'chest') {
+      s.data.slots = s.data.slots.map((slot, i) => {
+        if (slot && !ITEMS_BY_ID.has(slot.itemId)) {
+          console.warn(`[sim] unknown itemId "${slot.itemId}" in chest slot ${i} — cleared`);
+          return null;
+        }
+        return slot;
+      });
+    }
+    if (s.data?.kind === 'dryingRack' || s.data?.kind === 'workshop') {
+      s.data.jobs = s.data.jobs.map((job, i) => {
+        if (job && (!ITEMS_BY_ID.has(job.inputItemId) || !ITEMS_BY_ID.has(job.outputItemId))) {
+          console.warn(`[sim] unknown item in processing job ${i} — job dropped`);
+          return null;
+        }
+        return job;
+      });
+    }
+  }
+  // §8.5 import sanitiser (US70): illegal footprints/instances reclaimed at 100%,
+  // reported — never silently deleted.
+  const reclaimed = sanitizeStructuresInPlace(state, { map });
+  for (const r of reclaimed.reclaimed) {
+    console.warn(
+      `[sim] structure ${r.instanceId} (${r.defId}) reclaimed on load — ${r.refundGold}g refunded (§8.5)`,
+    );
+  }
   state = refreshPickups(state, map);
   return { state, quests: structuredClone(save.quests) };
 }
 
-/** Restore a sim from a validated save (storage layer has already run safeParse). */
-export function createSim(save: RestorableSaveDoc, map: MapMeta, options?: SimOptions): SimApi {
+/** Restore a sim from a validated save (storage layer has already run safeParse +
+ * the v1→v2 migration chain; v1-shaped inputs stay accepted — see RestorableInput). */
+export function createSim(save: RestorableInput, map: MapMeta, options?: SimOptions): SimApi {
   const { state, quests } = hydrate(save, map);
   return makeSim(state, quests, map, options);
 }

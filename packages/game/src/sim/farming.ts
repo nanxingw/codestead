@@ -26,8 +26,9 @@ import {
   grantXpInPlace,
   raiseCounterInPlace,
 } from './leveling.js';
+import { rollQuality } from './quality.js';
 import { canTill, getTile, parseTileKey, tileKey } from './tiles.js';
-import { timeView } from './time.js';
+import { rngNext, timeView } from './time.js';
 import type {
   ActionQuery,
   CropState,
@@ -203,10 +204,17 @@ export function applyAction(
       if (t === null || crop === null || !crop.mature || crop.withered) break;
       const cropDef = getCropDef(crop.cropId);
       const itemId = cropItemId(crop.cropId);
+      // M3 (§4.5 / PRD 04 US43): roll the harvested unit's quality from the serialized
+      // sfc32 stream (sim/time owns rngState) so replay stays deterministic; advance the
+      // stream regardless of pack space so consumption is tied to the harvest attempt,
+      // not to whether it happened to fit. Quality never touches XP (§4.5).
+      const draw = rngNext(next.time.rngState);
+      next.time.rngState = draw.rngState;
+      const quality = rollQuality(draw.value);
       // Full backpack: the whole pick is blocked, crop stays mature, the regrow
       // harvest is NOT consumed — zero loss (§3.9 #1). UI toasts from its own check.
-      if (!canAdd(next.inventory, itemId, 1)) break;
-      addInPlace(next.inventory, itemId, 1);
+      if (!canAdd(next.inventory, itemId, 1, quality)) break;
+      addInPlace(next.inventory, itemId, 1, quality);
       if (crop.harvestsLeft !== null) {
         // T7: regrow crop → regrowing; exhausting the pod season turns it into the
         // old vine (harvestsLeft === 0), which never regrows and never expires (§3.2).

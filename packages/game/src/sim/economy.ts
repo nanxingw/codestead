@@ -10,12 +10,14 @@
  *   constitutional (GDD §4.3); M1 "purchases" = the ToolTiers (the only oneTime entries);
  * - tools & quest items are unsellable at category level AND in the sell tab (GDD §4.2).
  */
+import { INVENTORY_EXPANSION_PRICE, MATERIAL_SHOP_BUY_PRICE } from './data/buildings.js';
 import { ECONOMY, RELIEF, SHOP_CATALOG_M1 } from './data/constants.js';
 import type { ShopEntryDef } from './data/constants.js';
 import { ITEMS_BY_ID, seedItemId } from './data/items.js';
 import type { ItemDef, ItemId } from './data/items.js';
 import { addInPlace, maxAddable, removeAtInPlace } from './inventory.js';
 import { bumpCounterInPlace, effectiveLevel } from './leveling.js';
+import { QUALITY_MULT, type Quality } from './quality.js';
 import type { ItemStack, SimEvent, WorldState } from './types.js';
 
 // ---- wallet (GDD §4.1; pure functions, events emitted by callers/facade) ----
@@ -47,12 +49,11 @@ export function debit(gold: number, amount: number): number | 'INSUFFICIENT_GOLD
 
 // ---- pricing (GDD §4.5; the ONLY sale-price calculation in the game) ----
 
-export type Quality = 'normal'; // M1: quality multiplier is constant 1 (M3 adds silver/gold)
-
-const QUALITY_MULT: Record<Quality, number> = { normal: 1 };
+// M3: quality grades + multipliers live in quality.ts (silver 1.25 / gold 1.5, §4.5);
+// re-exported here so existing `import { Quality } from './economy.js'` callers hold.
+export { type Quality } from './quality.js';
 
 export interface PriceCtx {
-  /** M1: always null (profession lands M3). */
   profession: 'horticulturist' | 'artisan' | null;
 }
 
@@ -78,12 +79,21 @@ function isBinSellable(def: ItemDef): boolean {
   );
 }
 
-/** Merge `count` of `itemId` into the bin, respecting the 99 stack cap (save schema). */
-function addToBinInPlace(bin: ItemStack[], itemId: string, count: number): void {
+/**
+ * Merge `count` of `itemId` (at `quality`, absent ⇒ normal) into the bin, respecting the
+ * 99 stack cap (save schema). Quality-aware (§4.5 + v2): a silver stack never merges into
+ * a normal line, so each grade keeps its own bin lines and is priced by grade at
+ * settlement. New silver/gold lines carry the explicit `quality` field; normal stays bare.
+ */
+function addToBinInPlace(bin: ItemStack[], itemId: string, count: number, quality?: Quality): void {
   let remaining = count;
   for (const stack of bin) {
     if (remaining === 0) return;
-    if (stack.itemId === itemId && stack.count < 99) {
+    if (
+      stack.itemId === itemId &&
+      (stack.quality ?? 'normal') === (quality ?? 'normal') &&
+      stack.count < 99
+    ) {
       const take = Math.min(99 - stack.count, remaining);
       stack.count += take;
       remaining -= take;
@@ -91,7 +101,9 @@ function addToBinInPlace(bin: ItemStack[], itemId: string, count: number): void 
   }
   while (remaining > 0) {
     const take = Math.min(99, remaining);
-    bin.push({ itemId, count: take });
+    bin.push(
+      quality && quality !== 'normal' ? { itemId, count: take, quality } : { itemId, count: take },
+    );
     remaining -= take;
   }
 }
@@ -111,7 +123,7 @@ export function depositToBin(
   if (!def || !isBinSellable(def)) return { state, events: [] }; // tools/seeds/quest gated (§4.2)
   const next = structuredClone(state);
   const moved = removeAtInPlace(next.inventory, slot, count);
-  addToBinInPlace(next.economy.shippingBin, stack.itemId, moved);
+  addToBinInPlace(next.economy.shippingBin, stack.itemId, moved, stack.quality);
   return { state: next, events: [] };
 }
 
@@ -126,7 +138,7 @@ export function withdrawFromBin(
   const next = structuredClone(state);
   const binStack = next.economy.shippingBin[index];
   const want = Math.min(count, binStack.count);
-  const { added } = addInPlace(next.inventory, binStack.itemId as ItemId, want);
+  const { added } = addInPlace(next.inventory, binStack.itemId as ItemId, want, binStack.quality);
   if (added === 0) return { state, events: [] }; // inventory full — bin keeps everything
   binStack.count -= added;
   if (binStack.count === 0) next.economy.shippingBin.splice(index, 1);
@@ -143,7 +155,7 @@ export function depositAllToBin(state: WorldState): { state: WorldState; events:
     const def = ITEMS_BY_ID.get(stack.itemId);
     if (!def || !isBinSellable(def)) continue;
     const moved = removeAtInPlace(next.inventory, slot, stack.count);
-    addToBinInPlace(next.economy.shippingBin, stack.itemId, moved);
+    addToBinInPlace(next.economy.shippingBin, stack.itemId, moved, stack.quality);
     movedAny = true;
   }
   return movedAny ? { state: next, events: [] } : { state, events: [] };
@@ -170,11 +182,15 @@ export function settleShipping(state: WorldState): {
   const shipped: { itemId: string; count: number; gold: number }[] = [];
   const ctx: PriceCtx = { profession: next.progress.profession };
 
+  // Price each bin stack by ITS OWN quality (§4.5 silver 1.25× / gold 1.5×); the single
+  // floor lives inside unitSalePrice. Lines are still aggregated by itemId for the §12
+  // ItemSold event / collectionLog / counters (quality is a pricing input, not a separate
+  // catalogue entry), but the per-stack price already reflects each unit's grade.
   const aggregated = new Map<string, { count: number; gold: number }>();
   for (const stack of next.economy.shippingBin) {
     const def = ITEMS_BY_ID.get(stack.itemId);
     if (!def || def.sellPrice === undefined) continue; // unknown ids were dropped at hydrate
-    const gold = unitSalePrice(def, 'normal', ctx) * stack.count;
+    const gold = unitSalePrice(def, stack.quality ?? 'normal', ctx) * stack.count;
     const line = aggregated.get(stack.itemId) ?? { count: 0, gold: 0 };
     line.count += stack.count;
     line.gold += gold;
@@ -335,6 +351,62 @@ export function buy(
   const events: SimEvent[] = [
     { type: 'GoldChanged', gold: next.economy.gold, delta: -cost },
     { type: 'ItemPicked', itemId, count: granted }, // straight into the backpack (§6.4)
+  ];
+  return { state: next, events, granted, cost };
+}
+
+// ---- M3 sinks & material floor (GDD §6.2 backpack; §8.1 shop floor 5g/个) ----
+
+/**
+ * Backpack 12 → 24 (GDD §6.2/§6.9; PRD 04 US47): 1,000g, level-independent, instant;
+ * the original 12 slot indexes are preserved verbatim (the M1 reserve-lock row simply
+ * unlocks). Not a SHOP_CATALOG_M1 row — that table is the frozen §4.3 M1 contract;
+ * the shop UI lists this via its own M3 entry calling this reducer.
+ */
+export function expandInventory(
+  state: WorldState,
+): { state: WorldState; events: SimEvent[]; cost: number } | { blocked: string } {
+  if (state.inventory.capacity === 24) return { blocked: 'ALREADY_OWNED' };
+  const paid = debit(state.economy.gold, INVENTORY_EXPANSION_PRICE);
+  if (paid === 'INSUFFICIENT_GOLD') return { blocked: 'INSUFFICIENT_GOLD' };
+  const next = structuredClone(state);
+  next.economy.gold = paid;
+  next.inventory.capacity = 24;
+  while (next.inventory.slots.length < 24) next.inventory.slots.push(null);
+  const events: SimEvent[] = [
+    { type: 'GoldChanged', gold: next.economy.gold, delta: -INVENTORY_EXPANSION_PRICE },
+  ];
+  return { state: next, events, cost: INVENTORY_EXPANSION_PRICE };
+}
+
+/**
+ * Material buy-in floor (GDD §8.1/§4.4 价值锚; PRD 04 US34): wood/stone at 5g each so
+ * "missing a few materials" can never soft-lock a build. granted = min(requested,
+ * affordable, fits) — the §4.3 purchase clamp discipline.
+ */
+export function buyMaterial(
+  state: WorldState,
+  material: 'wood' | 'stone',
+  requested: number,
+): { state: WorldState; events: SimEvent[]; granted: number; cost: number } | { blocked: string } {
+  const itemId: ItemId = material === 'wood' ? 'material_wood' : 'material_stone';
+  const price = MATERIAL_SHOP_BUY_PRICE[material];
+  const want = Math.max(0, Math.trunc(requested));
+  const affordable = Math.floor(state.economy.gold / price);
+  const fits = maxAddable(state.inventory, itemId);
+  const granted = Math.min(want, affordable, fits);
+  if (granted <= 0) {
+    return { blocked: affordable === 0 ? 'INSUFFICIENT_GOLD' : 'INVENTORY_FULL' };
+  }
+  const cost = granted * price;
+  const paid = debit(state.economy.gold, cost);
+  if (paid === 'INSUFFICIENT_GOLD') return { blocked: 'INSUFFICIENT_GOLD' }; // defended, not implied
+  const next = structuredClone(state);
+  next.economy.gold = paid;
+  addInPlace(next.inventory, itemId, granted);
+  const events: SimEvent[] = [
+    { type: 'GoldChanged', gold: next.economy.gold, delta: -cost },
+    { type: 'ItemPicked', itemId, count: granted },
   ];
   return { state: next, events, granted, cost };
 }

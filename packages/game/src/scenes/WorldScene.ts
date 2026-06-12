@@ -11,10 +11,10 @@
  * landed yet, the scene degrades (generated ground, FALLBACK_MAP_META, movement-only
  * mode) instead of crashing — every degradation logs a console warning.
  */
-import type { RestorableSaveDoc } from '@codestead/shared';
+import type { RestorableSaveDocV2 } from '@codestead/shared';
 import Phaser from 'phaser';
 
-import { MAPS, SFX, TEXTURES } from '../AssetKeys';
+import { MAPS, SFX, SFX_M3, TEXTURES } from '../AssetKeys';
 import { BOOT_BUNDLE_REGISTRY_KEY, type BootBundle } from '../boot/bundle';
 import { detectAppVersion } from '../boot/new-game';
 import { makeSaveTransfer } from '../boot/save-transfer';
@@ -26,16 +26,20 @@ import { canAdd } from '../sim/inventory';
 import { effectiveLevel } from '../sim/leveling';
 import type { SimApi } from '../sim/sim';
 import { newGameSim } from '../sim/sim';
-import { nextCapLevel, tillBlockedByCap } from '../sim/tiles';
+import { getTile, nextCapLevel, tillBlockedByCap } from '../sim/tiles';
 import type { ActionQuery, DaySummary, Facing, MapMeta, SimEvent, TilePos } from '../sim/types';
 import { SaveManager } from '../storage/save-manager';
 import { UI_CONTEXT_REGISTRY_KEY, type UiContext } from '../ui/context';
+import { structureAt } from '../ui/panels/build-model';
 import { SettingsStore } from '../ui/settings-store';
 import { t } from '../ui/strings';
 import { facingToward, resolveTargetTile, MOUSE_TAKEOVER_PX, type AimMode } from '../world/aim';
 import { ActionBuffer, HoldCharge, HoldRepeater } from '../world/action-timing';
 import { AmbienceView } from '../world/ambience-view';
-import { SfxPlayer, attachWorldSfx } from '../world/audio';
+import { attachWorldSfx } from '../world/audio';
+import { AudioShell } from '../world/audio-shell';
+import { BUILD_EVENTS, type StructureInteractPayload } from '../world/build-bridge';
+import { BuildController } from '../world/build-controller';
 import { CropsView } from '../world/crops-view';
 import { TileCursor } from '../world/cursor';
 import { REGISTRY_KEYS, WORLD_EVENTS, type InteractablePayload } from '../world/events';
@@ -46,6 +50,7 @@ import { PALETTE } from '../world/palette';
 import { PickupsView } from '../world/pickups-view';
 import { PlayerController } from '../world/player';
 import { RangePreview } from '../world/range-preview';
+import { StructuresView } from '../world/structures-view';
 import {
   FALLBACK_GROUND_TEXTURE,
   PARTICLE_TEXTURE,
@@ -79,6 +84,10 @@ export class WorldScene extends Phaser.Scene {
   private crops!: CropsView;
   private pickupsView!: PickupsView;
   private ambience!: AmbienceView;
+  /** M3 placed structures & sprinkler markers (GDD §8; PRD 04 §B). */
+  private structuresView!: StructuresView;
+  /** M3 PLACING controller (§8.3) — registered on the registry for the UI panels. */
+  private buildController!: BuildController;
 
   private readonly inputStack = new InputStack();
   private readonly repeater = new HoldRepeater();
@@ -107,6 +116,8 @@ export class WorldScene extends Phaser.Scene {
 
   private readonly interactableByTile = new Map<string, { id: string; kind: string }>();
   private readonly pickupSpotByTile = new Map<string, string>();
+  /** M3 §8.1 clearable trees/boulders by tile key (axe → wood, pickaxe → stone). */
+  private readonly resourceNodeByTile = new Map<string, { id: string; kind: 'tree' | 'boulder' }>();
 
   private nightPending = false;
   private nightActive = false;
@@ -124,7 +135,7 @@ export class WorldScene extends Phaser.Scene {
    *  Esc/Tab/I/1-9/wheel keys and the day-summary dismissal (apiDrift contract). */
   private uiLive = false;
   private saves: SaveManager | null = null;
-  private sfx: SfxPlayer | null = null;
+  private sfx: AudioShell | null = null;
   private unsubWorldSfx: (() => void) | null = null;
   /** Guards the night-settlement side effects (events arrive via both channels). */
   private lastNightHandledDay = 0;
@@ -206,6 +217,7 @@ export class WorldScene extends Phaser.Scene {
     this.collisionLayerData = null;
     this.interactableByTile.clear();
     this.pickupSpotByTile.clear();
+    this.resourceNodeByTile.clear();
     this.nightPending = false;
     this.nightActive = false;
     this.pendingSummary = null;
@@ -324,6 +336,25 @@ export class WorldScene extends Phaser.Scene {
     this.cursor = new TileCursor(this);
     this.rangePreview = new RangePreview(this);
     this.upgradeFx = new UpgradeFx(this, () => this.reducedMotionActive());
+    this.structuresView = new StructuresView(this, () => this.reducedMotionActive());
+    // PLACING controller (§8.3): UI panels reach it via build-bridge; all closures
+    // read live scene state, so construction order does not matter.
+    this.buildController = new BuildController(this, {
+      sim: () => this.sim,
+      mapMeta: () => this.mapMeta,
+      playerTile: () => this.player.currentTile,
+      facing: () => this.player.facing,
+      hoverTile: () => this.hoverTile(),
+      aimMode: () => this.aimMode,
+      isSolidTerrain: (tx, ty) => {
+        const w = this.mapMeta.width;
+        if (tx < 0 || ty < 0 || tx >= w || ty >= this.mapMeta.height) return true;
+        return this.collisionSolid[ty * w + tx] === 1;
+      },
+      toast: (text) => this.uiToast(text),
+      playError: () => this.sfx?.play(SFX.uiError),
+      playCommit: () => this.sfx?.play(SFX.itemGet),
+    });
   }
 
   private buildPlayerAndCamera(): void {
@@ -338,7 +369,10 @@ export class WorldScene extends Phaser.Scene {
       facing,
       (tx, ty) => {
         if (tx < 0 || ty < 0 || tx >= w || ty >= this.mapMeta.height) return true;
-        return this.collisionSolid[ty * w + tx] === 1;
+        if (this.collisionSolid[ty * w + tx] === 1) return true;
+        // M3 placed structures extend the collision truth (GDD §8.3; canPlace rule
+        // ⑤ guarantees the player is never inside a footprint when it commits).
+        return this.structuresView.isSolid(tx, ty);
       },
       this.mapMeta.width * TILE,
       this.mapMeta.height * TILE,
@@ -426,7 +460,7 @@ export class WorldScene extends Phaser.Scene {
    * movement is render-owned). During the night flow the sim already holds the
    * §1.3 wake-at-spawn position; do not overwrite it with the pre-sleep position.
    */
-  private snapshotForSave(): RestorableSaveDoc {
+  private snapshotForSave(): RestorableSaveDocV2 {
     const sim = this.sim;
     if (!sim) throw new Error('[world] snapshot requested without a sim');
     if (!this.nightActive && !this.nightPending) {
@@ -442,9 +476,17 @@ export class WorldScene extends Phaser.Scene {
       this.scene.launch('UI'); // passive M0-compatible shell (movement-only mode)
       return;
     }
-    const audio = new SfxPlayer(this);
+    // AudioShell = pure AudioDirector (audio/audio-director.ts) + Phaser playback
+    // (BGM/ambience loops, first-gesture lazy load, four-channel volumes — GDD §11.6).
+    const audio = new AudioShell(this, {
+      pauseSources: () => this.driver.pauseSources,
+      playerPos: () => ({ x: this.player.sprite.x, y: this.player.sprite.y }),
+      surfaceAt: () =>
+        this.sim && getTile(this.sim.state, this.player.currentTile) !== null ? 'dirt' : 'grass',
+    });
     this.sfx = audio;
-    this.unsubWorldSfx = attachWorldSfx(this.sim, audio);
+    this.unsubWorldSfx = attachWorldSfx(this.sim, audio.sfx);
+    audio.attach(this.sim);
     const bundle = this.registry.get(BOOT_BUNDLE_REGISTRY_KEY) as BootBundle | undefined;
     const ctx: UiContext = {
       sim: this.sim,
@@ -548,6 +590,17 @@ export class WorldScene extends Phaser.Scene {
         if (!this.uiLive) this.resumeDay(); // UI day-summary panel owns dismissal otherwise
         return;
       }
+      // M3 PLACING (§8.3): left = commit at the ghost (any distance — the ghost IS
+      // the selection), right = cancel back to the catalog. Both consume the click.
+      if (this.buildController.isActive() && !this.isModalBlocked()) {
+        if (pointer.rightButtonDown()) {
+          this.buildController.cancelToCatalog();
+        } else if (pointer.leftButtonDown()) {
+          this.aimMode = 'mouse';
+          this.buildController.commit();
+        }
+        return;
+      }
       if (!pointer.leftButtonDown() || this.isModalBlocked()) return;
       this.aimMode = 'mouse';
       const hover = this.hoverTile(pointer);
@@ -585,6 +638,12 @@ export class WorldScene extends Phaser.Scene {
     for (const spot of this.mapMeta.pickupSpots) {
       this.pickupSpotByTile.set(`${spot.tile.x},${spot.tile.y}`, spot.id);
     }
+    for (const node of this.mapMeta.resourceNodes ?? []) {
+      this.resourceNodeByTile.set(`${node.tile.x},${node.tile.y}`, {
+        id: node.id,
+        kind: node.kind,
+      });
+    }
   }
 
   // ---- per-frame ----------------------------------------------------------
@@ -616,6 +675,10 @@ export class WorldScene extends Phaser.Scene {
 
     this.updateCursor(blocked);
     this.updateRangeOverlays(blocked);
+    // M3 PLACING ghost (§8.3): time keeps flowing; the ghost stays visible under the
+    // CONFIRM dialog so the pending order keeps its spatial context.
+    if (!this.nightActive) this.buildController.update();
+    if (this.sim) this.structuresView.updateClock(this.sim.state.time.minuteOfDay);
     this.checkToolUpgrades();
     if (this.letterGlow && this.sim) {
       this.letterGlow.setVisible(
@@ -761,6 +824,19 @@ export class WorldScene extends Phaser.Scene {
     if (this.interactableByTile.has(key)) return true;
     const spotId = this.pickupSpotByTile.get(key);
     if (spotId !== undefined && this.isPickupAvailable(spotId)) return true;
+    // M3 §8.1: a clearable tree/boulder with the matching tool selected is an E-target.
+    if (this.clearableNodeAt(tile)) return true;
+    // M3 built facilities are E-targets (coop egg spot / processing slots / bench).
+    if (this.sim) {
+      const structure = structureAt(this.sim.state, tile);
+      if (
+        structure &&
+        structure.state === 'built' &&
+        this.isInteractiveStructure(structure.defId)
+      ) {
+        return true;
+      }
+    }
     if (this.safeQuery(tile, itemId).valid) return true;
     // Copper/gold can: a tap waters the whole tier range, so the target counts as
     // actionable when ANY tile in its range is waterable (wet center, dry extension).
@@ -774,6 +850,32 @@ export class WorldScene extends Phaser.Scene {
 
   private isPickupAvailable(spotId: string): boolean {
     return this.sim?.state.pickups.some((p) => p.spotId === spotId && p.available) ?? false;
+  }
+
+  /**
+   * M3 §8.1 clearable node at `tile`: present in the map, not already cleared, and the
+   * matching tool (axe for trees, pickaxe for boulders) is the selected hotbar item. The
+   * sim re-validates (MISSING_TOOL / ALREADY_CLEARED / INVENTORY_FULL) on dispatch; this
+   * UI gate only decides cursor/E targeting so an empty swing is never the response.
+   */
+  private clearableNodeAt(tile: TilePos): { id: string; kind: 'tree' | 'boulder' } | null {
+    const node = this.resourceNodeByTile.get(`${tile.x},${tile.y}`);
+    if (!node || !this.sim) return null;
+    if (this.sim.state.clearedResourceNodes?.includes(node.id)) return null;
+    const tool: ItemId = node.kind === 'tree' ? 'axe' : 'pickaxe';
+    return this.selectedItemId() === tool ? node : null;
+  }
+
+  /** Built structures with an E-interaction (everything else is pure scenery). */
+  private isInteractiveStructure(defId: string): boolean {
+    return (
+      defId === 'coop' ||
+      defId === 'workshop' ||
+      defId === 'drying_rack' ||
+      defId === 'bench' ||
+      defId === 'storage_chest' ||
+      defId === 'greenhouse'
+    );
   }
 
   /**
@@ -801,8 +903,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private updateCursor(blocked: boolean): void {
-    if (blocked || this.nightActive) {
-      this.cursor.set('hidden', null);
+    if (blocked || this.nightActive || this.buildController.isActive()) {
+      this.cursor.set('hidden', null); // PLACING: the ghost replaces the tile cursor
       return;
     }
     const target = this.resolveTarget();
@@ -829,6 +931,11 @@ export class WorldScene extends Phaser.Scene {
    * monotonic); every other press keeps M1-core fire-now + hold-to-repeat semantics.
    */
   private pressInteract(): void {
+    // M3 PLACING (§8.3): E commits at the ghost — keyboard-only flow (US10).
+    if (this.buildController.isActive()) {
+      this.buildController.commit();
+      return;
+    }
     if (this.chargeEligible()) {
       this.charge.press(this.time.now);
       return;
@@ -932,7 +1039,7 @@ export class WorldScene extends Phaser.Scene {
    * tiles and validity come from the same expansion the execution paths use.
    */
   private updateRangeOverlays(blocked: boolean): void {
-    if (!this.sim || blocked || this.nightActive) {
+    if (!this.sim || blocked || this.nightActive || this.buildController.isActive()) {
       this.rangePreview.hide();
       return;
     }
@@ -1017,6 +1124,42 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
+    // M3 §8.1 labor path: clear a tree/boulder with the matching tool (5 wood / 3 stone,
+    // permanent). The sim returns the right error (MISSING_TOOL/ALREADY_CLEARED/
+    // INVENTORY_FULL) and emits ItemPicked (→ item_get SFX) on success; a full-pack
+    // attempt is a silent no-op the player retries after making room (zero loss).
+    const node = this.clearableNodeAt(tile);
+    if (node && this.sim) {
+      const facing = facingToward(this.player.currentTile, tile, this.player.facing);
+      // Tool swing (generic swing anim + tool lock); 'till' selects the tool timing —
+      // beginActing only reads the verb for lock duration, not a per-tool animation.
+      this.player.beginActing('till', facing);
+      this.time.delayedCall(ACTION_TIMING.EFFECT_AT_MS, () => {
+        this.sim?.dispatch({ type: 'clearResourceNode', nodeId: node.id });
+      });
+      return;
+    }
+
+    // M3 built structures (GDD §8.2/§8.3): E routes to the facility interaction —
+    // coop (hens/eggs), workshop/rack (processing), bench (sit), etc. Sites and pure
+    // scenery fall through to the farming pipeline below.
+    if (this.sim) {
+      const structure = structureAt(this.sim.state, tile);
+      if (
+        structure &&
+        structure.state === 'built' &&
+        this.isInteractiveStructure(structure.defId)
+      ) {
+        const payload: StructureInteractPayload = {
+          instanceId: structure.instanceId,
+          defId: structure.defId,
+          tile,
+        };
+        this.game.events.emit(BUILD_EVENTS.structureInteract, payload);
+        return;
+      }
+    }
+
     const itemId = this.selectedItemId(); // null = bare-hand harvest (§3.5 空手 row)
     if (!this.sim) return;
     const q = this.safeQuery(tile, itemId);
@@ -1058,7 +1201,19 @@ export class WorldScene extends Phaser.Scene {
       });
       return;
     }
-    if (!q.valid) return; // invalid target: skip, hold beat keeps running (§1.6)
+    if (!q.valid) {
+      // §11.5 / US58: an empty swing — a SWINGABLE tool (hoe/axe/pickaxe) committed onto a
+      // no-op target — gets the whiff cue so the action has feedback instead of dead silence.
+      // Scoped to real tools (the bare hand harvest-sweep and the watering can's range no-op,
+      // handled above, never whiff); the SfxPlayer's 50ms dedupe + pitch jitter keeps a held
+      // swing from machine-gunning. Routed through the shared audio shell via sfx-map.
+      if (itemId === 'hoe' || itemId === 'axe' || itemId === 'pickaxe') {
+        const facing = facingToward(this.player.currentTile, tile, this.player.facing);
+        this.player.beginActing('till', facing); // generic tool swing animation + lock
+        this.sfx?.play(SFX_M3.whiff);
+      }
+      return; // invalid target: hold beat keeps running (§1.6)
+    }
 
     const facing = facingToward(this.player.currentTile, tile, this.player.facing);
     this.player.beginActing(q.verb, facing);
@@ -1141,6 +1296,20 @@ export class WorldScene extends Phaser.Scene {
         this.applyZoneUnlock(ev.zoneId, false);
         if (!this.pendingUnlockFx.includes(ev.zoneId)) this.pendingUnlockFx.push(ev.zoneId);
         break;
+      // ---- M3 build events (GDD §8; renderer subscribes only, §12) ----
+      case 'StructurePlaced':
+      case 'StructureRemoved':
+      case 'StructureMoved':
+      case 'SprinklerPlaced':
+        this.structuresView.sync(this.sim.state);
+        break;
+      case 'ConstructionCompleted': {
+        // 竣工日清晨直接落成 + 彩带粒子，无弹窗 (§8.3, PRD 04 US11).
+        this.structuresView.sync(this.sim.state);
+        const done = this.sim.state.structures?.find((s) => s.instanceId === ev.instanceId);
+        if (done) this.structuresView.confetti(done.origin, done.defId);
+        break;
+      }
       default:
         break; // gold/xp/level/weather events are UI & audio concerns
     }
@@ -1158,6 +1327,7 @@ export class WorldScene extends Phaser.Scene {
     this.farmland.refreshAll(this.sim.state.farm.tiles);
     this.crops.refreshAll(this.sim.state.farm.tiles);
     this.pickupsView.sync(this.sim.state.pickups);
+    this.structuresView.sync(this.sim.state); // M3 structures & sprinklers (§8.4)
   }
 
   private performSleep(): void {
@@ -1178,6 +1348,8 @@ export class WorldScene extends Phaser.Scene {
     this.buffer.clear();
     this.cursor.set('hidden', null);
     this.rangePreview.hide();
+    // 22:00 force-exits PLACING — uncommitted = 未扣费, zero loss (§8.3, PRD 04 US9).
+    this.buildController.forceExit();
     this.summaryShownAt = Number.POSITIVE_INFINITY;
     this.cameras.main.fadeOut(this.fadeMs(TIME.NIGHT_FADE_OUT_MS), 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
@@ -1268,6 +1440,10 @@ export class WorldScene extends Phaser.Scene {
     this.unsubSim = null;
     this.unsubWorldSfx?.();
     this.unsubWorldSfx = null;
+    this.sfx?.destroy();
+    this.sfx = null;
+    this.buildController.destroy();
+    this.structuresView.destroy();
     this.saves?.dispose();
     for (const fn of this.windowCleanups) fn();
     this.windowCleanups.length = 0;

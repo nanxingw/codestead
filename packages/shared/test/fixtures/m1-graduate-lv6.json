@@ -1,0 +1,406 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "saveId": "00000000-0000-4000-8000-000000000003",
+    "appVersion": "0.1.0",
+    "createdAtReal": 1780000000000,
+    "savedAtReal": 1780023400000,
+    "saveCount": 39,
+    "playTimeRealSeconds": 23400
+  },
+  "time": {
+    "day": 40,
+    "season": "spring",
+    "minuteOfDay": 360,
+    "weatherToday": "sunny",
+    "weatherTomorrow": "rain",
+    "rngState": "03cff90dc1b49efda1d932db71a391ac"
+  },
+  "player": {
+    "tileX": 27,
+    "tileY": 11,
+    "facing": "down",
+    "gold": 2413,
+    "selectedSlot": 0
+  },
+  "tools": {
+    "hoe": 1,
+    "wateringCan": 1
+  },
+  "inventory": {
+    "capacity": 12,
+    "slots": [
+      {
+        "itemId": "hoe",
+        "count": 1
+      },
+      {
+        "itemId": "watering_can",
+        "count": 1
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "world": {
+    "farmTiles": {
+      "22,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 6,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 6,
+          "withered": false
+        }
+      },
+      "23,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": 1,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      },
+      "24,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": 2,
+          "harvestsLeft": 3,
+          "withered": false
+        }
+      },
+      "25,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "bean_vine",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 0,
+          "withered": false
+        }
+      },
+      "26,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "bean_vine",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 0,
+          "withered": false
+        }
+      },
+      "27,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "bean_vine",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 0,
+          "withered": false
+        }
+      },
+      "28,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "bean_vine",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 0,
+          "withered": false
+        }
+      },
+      "29,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": 1,
+          "harvestsLeft": 4,
+          "withered": false
+        }
+      },
+      "22,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": 1,
+          "harvestsLeft": 4,
+          "withered": false
+        }
+      },
+      "23,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 6,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 6,
+          "withered": false
+        }
+      },
+      "24,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 4,
+          "withered": false
+        }
+      },
+      "25,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 4,
+          "withered": false
+        }
+      },
+      "26,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 6,
+          "withered": false
+        }
+      },
+      "27,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 6,
+          "withered": false
+        }
+      },
+      "28,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": 1,
+          "harvestsLeft": 4,
+          "withered": false
+        }
+      },
+      "29,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": 1,
+          "harvestsLeft": 4,
+          "withered": false
+        }
+      },
+      "22,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 6,
+          "withered": false
+        }
+      },
+      "23,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      },
+      "24,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      },
+      "25,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      },
+      "26,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      },
+      "27,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      },
+      "28,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      },
+      "29,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "berry",
+          "daysGrown": 8,
+          "mature": false,
+          "regrowDaysLeft": 2,
+          "harvestsLeft": 5,
+          "withered": false
+        }
+      }
+    },
+    "shippingBin": []
+  },
+  "progress": {
+    "xp": 2422,
+    "profession": null,
+    "counters": {
+      "tillCount": 24,
+      "plantCount": 154,
+      "waterCount": 628,
+      "sleepCount": 39,
+      "harvestCount": 185,
+      "harvestedCrops:radish_quick": 115,
+      "sellCount": 185,
+      "soldCrops:radish_quick": 115,
+      "goldEarned": 6813,
+      "rainDaysSeen": 4,
+      "harvestedCrops:potato": 3,
+      "soldCrops:potato": 3,
+      "regrowChainMax": 8,
+      "harvestedCrops:bean_vine": 32,
+      "soldCrops:bean_vine": 32,
+      "harvestedCrops:cabbage": 12,
+      "soldCrops:cabbage": 12,
+      "harvestedCrops:berry": 23,
+      "soldCrops:berry": 23
+    },
+    "achievements": [],
+    "xpHistory": [128, 80, 32],
+    "collectionLog": {
+      "crop_radish_quick": {
+        "firstSoldDay": 3
+      },
+      "crop_potato": {
+        "firstSoldDay": 10
+      },
+      "crop_bean_vine": {
+        "firstSoldDay": 19
+      },
+      "crop_cabbage": {
+        "firstSoldDay": 24
+      },
+      "crop_berry": {
+        "firstSoldDay": 33
+      }
+    },
+    "stats": {
+      "totalGoldEarned": 6813,
+      "totalHarvests": 185,
+      "harvestsByCrop": {
+        "radish_quick": 115,
+        "potato": 3,
+        "bean_vine": 32,
+        "cabbage": 12,
+        "berry": 23
+      }
+    }
+  },
+  "quests": {
+    "grantedQuestIds": [],
+    "completedCount": 0,
+    "noteRefs": []
+  }
+}

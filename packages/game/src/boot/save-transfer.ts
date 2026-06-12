@@ -8,9 +8,14 @@
  * the imported world (M1 has no hot-swap path). Any failure leaves the existing
  * save byte-identical (GDD §10.6 / PRD 01 US93).
  */
-import type { RestorableSaveDoc } from '@codestead/shared';
+import type { RestorableSaveDocV2 } from '@codestead/shared';
 
-import { applyImportedSave, downloadSaveDoc, parseImportedSave } from '../storage/export-import';
+import {
+  applyImportedSave,
+  downloadSaveDoc,
+  parseImportedSave,
+  stashImportedFromVersion,
+} from '../storage/export-import';
 import { composeSaveDoc, validateSaveDoc } from '../storage/save-codec';
 import type { SaveManager } from '../storage/save-manager';
 import type { SaveStorage } from '../storage/save-storage';
@@ -24,7 +29,7 @@ export function makeSaveTransfer(deps: {
   storage: SaveStorage;
   saves: SaveManager;
   /** Live snapshot provider — WorldScene's player-synced SimApi.serialize. */
-  snapshot: () => RestorableSaveDoc;
+  snapshot: () => RestorableSaveDocV2;
 }): SaveTransfer {
   return {
     exportSave(): Promise<void> {
@@ -49,6 +54,11 @@ export function makeSaveTransfer(deps: {
       } catch (error) {
         console.warn('[save] import write failed; existing save untouched:', error);
         return { ok: false };
+      }
+      // US37 retro seam: the migrated doc is what got persisted, so the source
+      // version must survive the reload (sessionStorage; PreloadScene pops it).
+      if (parsed.migratedFromVersion !== undefined) {
+        stashImportedFromVersion(parsed.migratedFromVersion);
       }
       // Stop further autosaves from clobbering the imported slot, then reboot into it.
       deps.saves.dispose();

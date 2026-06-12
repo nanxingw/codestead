@@ -12,7 +12,7 @@
  * `progress.counters` record under INTRO_LETTER_READ_COUNTER (recorded as an
  * open question — schema owner may bless or relocate it).
  */
-import type { SaveDoc } from '@codestead/shared';
+import type { SaveDocV2 } from '@codestead/shared';
 
 /** Map-object id of the porch letter (farm.tmj `interactables` layer, §1.5). */
 export const INTRO_LETTER_INTERACTABLE_ID = 'intro_letter';
@@ -34,7 +34,7 @@ export interface IntroLetterDelivery {
 }
 
 /** Decide whether the porch letter should still prompt for this save. */
-export function introLetterFor(doc: SaveDoc): IntroLetterDelivery {
+export function introLetterFor(doc: SaveDocV2): IntroLetterDelivery {
   const count = doc.progress.counters[INTRO_LETTER_READ_COUNTER] ?? 0;
   return { interactableId: INTRO_LETTER_INTERACTABLE_ID, unread: count < 1 };
 }

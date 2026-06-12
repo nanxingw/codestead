@@ -7,7 +7,9 @@
  *
  * Contract rules (GDD §10.6):
  * - ANY field add/remove/change (incl. enum widening) bumps `schemaVersion` — no gray area.
- *   Migration chain (pure fn array v→v+1) is deferred until M3 introduces v2.
+ * - M3 NOTE: v1 is now FROZEN — it is the input shape of migrateV1toV2 and must never
+ *   change again. The current document is SaveDoc v2 (save-v2.ts) reached through the
+ *   migration chain in save-migrations.ts.
  * - Import path: JSON.parse → safeParse; failure = reject, existing save untouched (M1).
  * - Write path: safeParse self-check before persisting; failure = programming bug, do not write.
  * - `meta` is display-only and MUST NOT feed game logic; sim restore takes `RestorableSaveDoc`

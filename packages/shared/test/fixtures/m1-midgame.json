@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "saveId": "00000000-0000-4000-8000-000000000002",
+    "appVersion": "0.1.0",
+    "createdAtReal": 1780000000000,
+    "savedAtReal": 1780007200000,
+    "saveCount": 12,
+    "playTimeRealSeconds": 7200
+  },
+  "time": {
+    "day": 13,
+    "season": "spring",
+    "minuteOfDay": 360,
+    "weatherToday": "sunny",
+    "weatherTomorrow": "sunny",
+    "rngState": "9dd89619dae27efca208dddc6b42b912"
+  },
+  "player": {
+    "tileX": 27,
+    "tileY": 11,
+    "facing": "down",
+    "gold": 223,
+    "selectedSlot": 0
+  },
+  "tools": {
+    "hoe": 1,
+    "wateringCan": 1
+  },
+  "inventory": {
+    "capacity": 12,
+    "slots": [
+      {
+        "itemId": "hoe",
+        "count": 1
+      },
+      {
+        "itemId": "watering_can",
+        "count": 1
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "world": {
+    "farmTiles": {
+      "22,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "23,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "24,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "25,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "potato",
+          "daysGrown": 6,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "26,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "potato",
+          "daysGrown": 6,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "27,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "bean_vine",
+          "daysGrown": 2,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": 8,
+          "withered": false
+        }
+      },
+      "28,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 2,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "29,14": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 2,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "22,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 2,
+          "mature": true,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "23,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "24,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "25,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "26,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "27,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "28,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "29,15": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "22,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": {
+          "cropId": "radish_quick",
+          "daysGrown": 1,
+          "mature": false,
+          "regrowDaysLeft": null,
+          "harvestsLeft": null,
+          "withered": false
+        }
+      },
+      "23,16": {
+        "tilled": true,
+        "wateredToday": false,
+        "crop": null
+      }
+    },
+    "shippingBin": []
+  },
+  "progress": {
+    "xp": 632,
+    "profession": null,
+    "counters": {
+      "tillCount": 18,
+      "plantCount": 66,
+      "waterCount": 124,
+      "sleepCount": 12,
+      "harvestCount": 49,
+      "harvestedCrops:radish_quick": 48,
+      "sellCount": 49,
+      "soldCrops:radish_quick": 48,
+      "goldEarned": 953,
+      "rainDaysSeen": 1,
+      "harvestedCrops:potato": 1,
+      "soldCrops:potato": 1
+    },
+    "achievements": [],
+    "xpHistory": [86, 44, 127],
+    "collectionLog": {
+      "crop_radish_quick": {
+        "firstSoldDay": 3
+      },
+      "crop_potato": {
+        "firstSoldDay": 10
+      }
+    },
+    "stats": {
+      "totalGoldEarned": 953,
+      "totalHarvests": 49,
+      "harvestsByCrop": {
+        "radish_quick": 48,
+        "potato": 1
+      }
+    }
+  },
+  "quests": {
+    "grantedQuestIds": [],
+    "completedCount": 0,
+    "noteRefs": []
+  }
+}

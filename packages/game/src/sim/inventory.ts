@@ -12,45 +12,70 @@
 import { INVENTORY } from './data/constants.js';
 import { getItemDef, ITEMS_BY_ID } from './data/items.js';
 import type { ItemId } from './data/items.js';
-import type { InventoryState, SimEvent, WorldState } from './types.js';
+import { sameQuality } from './quality.js';
+import type { InventoryState, Quality, SimEvent, WorldState } from './types.js';
 
-/** Total units of `itemId` that still fit (same-id headroom + empty slots × stackMax). */
-export function maxAddable(inv: InventoryState, itemId: ItemId): number {
+/**
+ * Total units of `itemId` (at `quality`, default normal) that still fit: same-id AND
+ * same-quality headroom + empty slots × stackMax. Quality-aware stacking (§6.1 + v2):
+ * a silver stack never tops up a normal stack, so headroom is computed per quality.
+ */
+export function maxAddable(inv: InventoryState, itemId: ItemId, quality?: Quality): number {
   const def = getItemDef(itemId);
   let room = 0;
   for (const stack of inv.slots) {
     if (stack === null) room += def.stackMax;
-    else if (stack.itemId === itemId) room += def.stackMax - stack.count;
+    else if (stack.itemId === itemId && sameQuality(stack.quality, quality))
+      room += def.stackMax - stack.count;
   }
   return room;
 }
 
-export function canAdd(inv: InventoryState, itemId: ItemId, count: number): boolean {
-  return maxAddable(inv, itemId) >= count;
+export function canAdd(
+  inv: InventoryState,
+  itemId: ItemId,
+  count: number,
+  quality?: Quality,
+): boolean {
+  return maxAddable(inv, itemId, quality) >= count;
 }
 
-/** In-place add following the §6.2 stacking rules. Returns how much fit. */
+/**
+ * In-place add following the §6.2 stacking rules. Returns how much fit. The optional
+ * `quality` (absent ⇒ normal) tags the produced stacks and gates merging — only same-id
+ * AND same-quality stacks combine (§6.1 + v2). `quality: 'normal'` stays absent on the
+ * stack so the v2 wire convention (absent = normal) holds and v1 stacks stay byte-equal.
+ */
 export function addInPlace(
   inv: InventoryState,
   itemId: ItemId,
   count: number,
+  quality?: Quality,
 ): { added: number; rejected: number } {
   const def = getItemDef(itemId);
   let remaining = count;
-  // Pass 1: top up same-id non-full stacks in slot order.
+  // Pass 1: top up same-id, SAME-QUALITY non-full stacks in slot order.
   for (const stack of inv.slots) {
     if (remaining === 0) break;
-    if (stack !== null && stack.itemId === itemId && stack.count < def.stackMax) {
+    if (
+      stack !== null &&
+      stack.itemId === itemId &&
+      sameQuality(stack.quality, quality) &&
+      stack.count < def.stackMax
+    ) {
       const take = Math.min(def.stackMax - stack.count, remaining);
       stack.count += take;
       remaining -= take;
     }
   }
-  // Pass 2: first empty slots.
+  // Pass 2: first empty slots; only silver/gold carry an explicit `quality` field.
   for (let i = 0; i < inv.slots.length && remaining > 0; i++) {
     if (inv.slots[i] === null) {
       const take = Math.min(def.stackMax, remaining);
-      inv.slots[i] = { itemId, count: take };
+      inv.slots[i] =
+        quality && quality !== 'normal'
+          ? { itemId, count: take, quality }
+          : { itemId, count: take };
       remaining -= take;
     }
   }
@@ -61,9 +86,10 @@ export function add(
   inv: InventoryState,
   itemId: ItemId,
   count: number,
+  quality?: Quality,
 ): { inv: InventoryState; added: number; rejected: number } {
   const next = structuredClone(inv);
-  const { added, rejected } = addInPlace(next, itemId, count);
+  const { added, rejected } = addInPlace(next, itemId, count, quality);
   return { inv: next, added, rejected };
 }
 
@@ -114,7 +140,8 @@ export function move(inv: InventoryState, from: number, to: number): InventorySt
   if (dst === null) {
     next.slots[to] = src;
     next.slots[from] = null;
-  } else if (dst.itemId === src.itemId) {
+  } else if (dst.itemId === src.itemId && sameQuality(dst.quality, src.quality)) {
+    // Same id AND same quality merge; a normal/silver pair swaps instead (§6.1 + v2).
     const def = ITEMS_BY_ID.get(src.itemId);
     const stackMax = def?.stackMax ?? 99;
     const take = Math.min(stackMax - dst.count, src.count);
@@ -155,12 +182,17 @@ export function splitAt(
   const src = next.slots[from];
   if (src === null) return next;
   const dst = next.slots[to];
-  if (dst !== null && dst.itemId !== src.itemId) return next;
+  // Split only onto an empty slot or a same-id, same-quality stack (§6.1 + v2).
+  if (dst !== null && (dst.itemId !== src.itemId || !sameQuality(dst.quality, src.quality)))
+    return next;
   const stackMax = ITEMS_BY_ID.get(src.itemId)?.stackMax ?? 99;
   const headroom = dst === null ? stackMax : stackMax - dst.count;
   const take = Math.min(count, src.count, headroom);
   if (take <= 0) return next;
-  if (dst === null) next.slots[to] = { itemId: src.itemId, count: take };
+  if (dst === null)
+    next.slots[to] = src.quality
+      ? { itemId: src.itemId, count: take, quality: src.quality }
+      : { itemId: src.itemId, count: take };
   else dst.count += take;
   src.count -= take;
   if (src.count === 0) next.slots[from] = null;

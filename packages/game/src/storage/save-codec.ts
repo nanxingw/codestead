@@ -1,6 +1,7 @@
 /**
  * save-codec.ts — pure (de)composition between the sim's meta-less snapshot
- * (`RestorableSaveDoc`) and the persisted `SaveDoc` v1.
+ * (`RestorableSaveDocV2`) and the persisted `SaveDoc` v2 (the CURRENT document
+ * since M3; v1 documents reach this layer only through the §10.6 migration chain).
  *
  * Contract (GDD §10.2 / sim/sim.ts header): `SimApi.serialize()` returns the
  * meta-less shape; this layer wraps it with `{ schemaVersion, meta }` and runs
@@ -12,10 +13,10 @@
  * All wall-clock reads are injected (`now` parameters) for testability.
  */
 import {
-  SAVE_SCHEMA_VERSION,
-  SaveDocSchema,
-  type RestorableSaveDoc,
-  type SaveDoc,
+  SAVE_SCHEMA_VERSION_V2,
+  SaveDocV2Schema,
+  type RestorableSaveDocV2,
+  type SaveDocV2,
   type SaveMeta,
 } from '@codestead/shared';
 
@@ -52,9 +53,9 @@ export function advanceMeta(
 }
 
 /** Wrap a sim snapshot into the persisted document shape (no validation here). */
-export function composeSaveDoc(restorable: RestorableSaveDoc, meta: SaveMeta): SaveDoc {
+export function composeSaveDoc(restorable: RestorableSaveDocV2, meta: SaveMeta): SaveDocV2 {
   return {
-    schemaVersion: SAVE_SCHEMA_VERSION,
+    schemaVersion: SAVE_SCHEMA_VERSION_V2,
     meta,
     time: restorable.time,
     player: restorable.player,
@@ -70,16 +71,16 @@ export function composeSaveDoc(restorable: RestorableSaveDoc, meta: SaveMeta): S
  * Strip `meta`/`schemaVersion` so the sim restore path cannot see wall-clock
  * data even by accident (type discipline, GDD §10.2 / PRD 01 US99).
  */
-export function toRestorable(doc: SaveDoc): RestorableSaveDoc {
+export function toRestorable(doc: SaveDocV2): RestorableSaveDocV2 {
   const { meta: _meta, schemaVersion: _schemaVersion, ...restorable } = doc;
   return restorable;
 }
 
-export type ValidationResult = { ok: true; doc: SaveDoc } | { ok: false; issues: string[] };
+export type ValidationResult = { ok: true; doc: SaveDocV2 } | { ok: false; issues: string[] };
 
 /** safeParse wrapper with human-readable issue paths (for the recovery/import UI). */
 export function validateSaveDoc(value: unknown): ValidationResult {
-  const result = SaveDocSchema.safeParse(value);
+  const result = SaveDocV2Schema.safeParse(value);
   if (result.success) return { ok: true, doc: result.data };
   return {
     ok: false,

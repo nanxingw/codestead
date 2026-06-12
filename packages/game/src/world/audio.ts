@@ -1,56 +1,63 @@
 /**
- * audio.ts — minimal M1 SFX adapter (integration glue; no dedicated audio stream yet).
+ * audio.ts — SFX playback adapter (M1 dedupe → full M3 gate, GDD §11.5).
  *
  * Implements the UiAudio contract from ui/context.ts on top of Phaser's global sound
- * manager: 50ms same-key dedupe is the only M1 limiter (GDD §11.5), master volume /
- * muted come from the settings store via UIScene. World-side action sounds are driven
- * purely by SimEvents (one-way flow, GDD §12): the sim emits each event exactly once
- * through on(), so subscription here cannot double-fire.
+ * manager. The play policy is the PURE gate in audio/audio-director.ts (`gateSfx`):
+ * 50ms same-key dedupe (M1) + concurrency cap 3 + ±4% pitch jitter + the §6.4 harvest
+ * combo ladder (M3). This file is only the Phaser-facing shell around that gate.
  *
- * UI-side sounds (coins on GoldChanged, the level-up jingle, ui_error) are played by
- * UIScene through the same UiAudio instance — they are NOT mapped here.
+ * Channel volumes (GDD §10.7, ruling A-10): master/muted apply globally on the sound
+ * manager; bgm/sfx/ui are per-sound multipliers from routeForKey() — pushed by UIScene
+ * via setChannelVolumes(). LOCKED behaviour per §11.6: requests before the first
+ * gesture are dropped, never queued.
+ *
+ * World-side action sounds are driven purely by SimEvents (one-way flow, GDD §12)
+ * through the audio/sfx-map.ts cue table; UI-side sounds (coins on GoldChanged, the
+ * jingles, ui_error) are played by UIScene through the same UiAudio instance.
  */
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
 
-import { SFX, type SfxKey } from '../AssetKeys';
+import type { SfxKey, SfxM3Key } from '../AssetKeys';
+import {
+  gateSfx,
+  releaseSfx,
+  setSfxUnlocked,
+  INITIAL_SFX_GATE,
+  LAYER_GAIN,
+  type SfxGateState,
+} from '../audio/audio-director';
+import { cueForWorldEvent, routeForKey, type SfxCue, type SfxLayer } from '../audio/sfx-map';
 import type { SimApi } from '../sim/sim';
 import type { SimEvent } from '../sim/types';
 import type { UiAudio } from '../ui/context';
+import type { AudioSettings } from '../ui/settings-store';
+import { DEFAULT_SETTINGS } from '../ui/settings-store';
 
-/** Same-key dedupe window (GDD §11.5: the only M1 audio limiter). */
+/** Same-key dedupe window (GDD §11.5) — re-exported for tests/back-compat. */
 export const SFX_DEDUPE_MS = 50;
 
-/** harvest_pop pitch jitter: ±10% pitch ≈ ±170 cents (GDD §6.4 「±10% 音高」). */
-export const HARVEST_PITCH_JITTER_CENTS = 170;
-
-/** Random detune for one harvest_pop play (render-side, NOT sim rng — no determinism). */
-export function harvestDetuneCents(): number {
-  return Math.round((Math.random() * 2 - 1) * HARVEST_PITCH_JITTER_CENTS);
-}
-
 export class SfxPlayer implements UiAudio {
-  private readonly lastPlayedAt = new Map<SfxKey, number>();
+  private gate: SfxGateState;
+  private channels: AudioSettings = { ...DEFAULT_SETTINGS.audio };
 
-  constructor(private readonly scene: Phaser.Scene) {}
-
-  play(key: SfxKey, opts?: { detune?: number; volume?: number }): void {
-    const now = this.scene.time.now;
-    const last = this.lastPlayedAt.get(key) ?? Number.NEGATIVE_INFINITY;
-    if (now - last < SFX_DEDUPE_MS) return;
-    this.lastPlayedAt.set(key, now);
-    if (!this.scene.cache.audio.exists(key)) return; // missing asset: silent (preload warned)
-    try {
-      const config: { detune?: number; volume?: number } = {};
-      if (opts?.detune !== undefined) config.detune = opts.detune;
-      if (opts?.volume !== undefined) config.volume = opts.volume;
-      if (config.detune !== undefined || config.volume !== undefined) {
-        this.scene.sound.play(key, config);
-      } else {
-        this.scene.sound.play(key);
-      }
-    } catch (error) {
-      console.warn(`[audio] failed to play ${key}:`, error);
+  constructor(private readonly scene: Phaser.Scene) {
+    // LOCKED until the first input gesture unlocks the sound manager (§11.6).
+    this.gate = setSfxUnlocked(INITIAL_SFX_GATE, !scene.sound.locked);
+    if (scene.sound.locked) {
+      scene.sound.once(Phaser.Sound.Events.UNLOCKED, () => {
+        this.gate = setSfxUnlocked(this.gate, true);
+      });
     }
+  }
+
+  play(key: SfxKey | SfxM3Key, opts?: { detune?: number; volume?: number }): void {
+    const route = routeForKey(key);
+    this.playRouted(key, route.channel, route.layer, false, opts);
+  }
+
+  /** World cue entry (sfx-map table): carries combo eligibility for the §6.4 ladder. */
+  playCue(cue: SfxCue): void {
+    this.playRouted(cue.key, cue.channel, cue.layer, cue.comboEligible === true);
   }
 
   /** Settings panel pushes 0..100 + muted immediately on change (GDD §10.7). */
@@ -58,29 +65,61 @@ export class SfxPlayer implements UiAudio {
     this.scene.sound.volume = Math.min(100, Math.max(0, volume)) / 100;
     this.scene.sound.mute = muted;
   }
+
+  /** Full four-channel push (M3, PRD 04 US56). */
+  setChannelVolumes(audio: AudioSettings): void {
+    this.channels = { ...audio };
+    this.setMasterVolume(audio.master, audio.muted);
+  }
+
+  get channelSettings(): Readonly<AudioSettings> {
+    return this.channels;
+  }
+
+  private playRouted(
+    key: SfxKey | SfxM3Key,
+    channel: 'bgm' | 'sfx' | 'ui',
+    layer: SfxLayer,
+    comboEligible: boolean,
+    opts?: { detune?: number; volume?: number },
+  ): void {
+    // Pitch jitter is an anti-machine-gun measure for repeated action SFX (§11.5);
+    // musical content (jingles) plays at true pitch — draw 0.5 centers to rate 1.
+    const jitterDraw = layer === 'jingle' ? 0.5 : Math.random(); // render-side, NOT sim rng
+    const decision = gateSfx(
+      this.gate,
+      { key, channel, atMs: this.scene.time.now, comboEligible },
+      jitterDraw,
+    );
+    this.gate = decision.state;
+    if (!decision.play) return;
+    if (!this.scene.cache.audio.exists(key)) {
+      // Missing asset: silent (preload warned), but free the concurrency slot.
+      this.gate = releaseSfx(this.gate, key);
+      return;
+    }
+    const channelGain = this.channels[channel] / 100;
+    const volume = (opts?.volume ?? 1) * channelGain * LAYER_GAIN[layer];
+    try {
+      const sound = this.scene.sound.add(key);
+      const release = (): void => {
+        this.gate = releaseSfx(this.gate, key);
+        sound.destroy();
+      };
+      sound.once(Phaser.Sound.Events.COMPLETE, release);
+      sound.once(Phaser.Sound.Events.STOP, release);
+      sound.play({ volume, rate: decision.rate, detune: opts?.detune ?? 0 });
+    } catch (error) {
+      this.gate = releaseSfx(this.gate, key);
+      console.warn(`[audio] failed to play ${key}:`, error);
+    }
+  }
 }
 
-/** SimEvent → world SFX mapping (GDD §11.5 M1 list). Returns the unsubscribe fn. */
-export function attachWorldSfx(sim: SimApi, audio: UiAudio): () => void {
+/** SimEvent → world SFX mapping (audio/sfx-map.ts table). Returns the unsubscribe fn. */
+export function attachWorldSfx(sim: SimApi, audio: SfxPlayer): () => void {
   return sim.on((event: SimEvent) => {
-    switch (event.type) {
-      case 'TileTilled':
-        audio.play(SFX.hoeTill);
-        break;
-      case 'CropPlanted':
-        audio.play(SFX.seedPlant);
-        break;
-      case 'CropWatered':
-        audio.play(SFX.waterPour);
-        break;
-      case 'CropHarvested':
-        audio.play(SFX.harvestPop, { detune: harvestDetuneCents() }); // ±10% pitch (§6.4)
-        break;
-      case 'ItemPicked':
-        audio.play(SFX.itemGet);
-        break;
-      default:
-        break; // gold/level/ui sounds belong to UIScene (same UiAudio instance)
-    }
+    const cue = cueForWorldEvent(event);
+    if (cue) audio.playCue(cue);
   });
 }

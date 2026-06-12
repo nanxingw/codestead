@@ -4,28 +4,45 @@
  * preferences); corrupted values silently fall back to defaults and are rewritten.
  *
  * M1 subset per PRD 01 US96: audio.master (80) / audio.muted / general.language
- * (zh-CN only) / accessibility.reducedMotion ('system'|'on'|'off'). M3/M4 keys
- * (bgm/sfx/ui channels, quests) are NOT written yet — the panel shows them grayed.
+ * (zh-CN only) / accessibility.reducedMotion ('system'|'on'|'off').
+ * M3 (PRD 04 US56, ruling A-10): bgm/sfx/ui channel volumes go live — defaults
+ * 35/70/50, bgm deliberately low (§10.7) — still localStorage-only, never SaveDoc.
  *
  * Phaser-free. Changes apply immediately and persist on every set (§6.5 设置 rule);
  * subscribers (audio system, reduced-motion consumers) get notified synchronously.
  */
+import { DEFAULT_AUDIO_SETTINGS } from '../audio/audio-director';
 
 export const SETTINGS_STORAGE_KEY = 'codestead.settings.v1';
 
 export type ReducedMotion = 'system' | 'on' | 'off';
 
+/** The four-channel audio block (GDD §10.7; audio-director DEFAULT_AUDIO_SETTINGS). */
+export interface AudioSettings {
+  master: number;
+  muted: boolean;
+  bgm: number;
+  sfx: number;
+  ui: number;
+}
+
 export interface GameSettings {
-  audio: { master: number; muted: boolean };
+  audio: AudioSettings;
   general: { language: 'zh-CN' | 'en' };
   accessibility: { reducedMotion: ReducedMotion };
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
-  audio: { master: 80, muted: false },
+  audio: { ...DEFAULT_AUDIO_SETTINGS },
   general: { language: 'zh-CN' },
   accessibility: { reducedMotion: 'system' },
 };
+
+function clampVolume(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(100, Math.max(0, Math.round(value)))
+    : fallback;
+}
 
 function sanitize(raw: unknown): GameSettings {
   const d = DEFAULT_SETTINGS;
@@ -34,16 +51,20 @@ function sanitize(raw: unknown): GameSettings {
   const audio = (o.audio ?? {}) as Record<string, unknown>;
   const general = (o.general ?? {}) as Record<string, unknown>;
   const accessibility = (o.accessibility ?? {}) as Record<string, unknown>;
-  const master =
-    typeof audio.master === 'number' && Number.isFinite(audio.master)
-      ? Math.min(100, Math.max(0, Math.round(audio.master)))
-      : d.audio.master;
+  const master = clampVolume(audio.master, d.audio.master);
   const muted = typeof audio.muted === 'boolean' ? audio.muted : d.audio.muted;
+  const bgm = clampVolume(audio.bgm, d.audio.bgm);
+  const sfx = clampVolume(audio.sfx, d.audio.sfx);
+  const ui = clampVolume(audio.ui, d.audio.ui);
   const language = general.language === 'en' ? 'en' : 'zh-CN';
   const rm = accessibility.reducedMotion;
   const reducedMotion: ReducedMotion =
     rm === 'on' || rm === 'off' || rm === 'system' ? rm : 'system';
-  return { audio: { master, muted }, general: { language }, accessibility: { reducedMotion } };
+  return {
+    audio: { master, muted, bgm, sfx, ui },
+    general: { language },
+    accessibility: { reducedMotion },
+  };
 }
 
 export class SettingsStore {

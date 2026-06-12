@@ -11,7 +11,7 @@
  * `applyImportedSave` after the caller confirms an ok result. The M5 preview/
  * confirm screen and migrate-on-import are out of M1 scope (§10.1 ruling).
  */
-import type { SaveDoc } from '@codestead/shared';
+import type { SaveDocV2 } from '@codestead/shared';
 
 import { validateSaveDoc } from './save-codec';
 import { classifyRawSave, CURRENT_SAVE_VERSION, migrateRawSave } from './migrations';
@@ -28,12 +28,12 @@ export function exportFileName(day: number, now: Date): string {
 }
 
 /** Pretty-printed document body (the SaveDoc itself, no wrapper). */
-export function exportSaveJson(doc: SaveDoc): string {
+export function exportSaveJson(doc: SaveDocV2): string {
   return JSON.stringify(doc, null, 2);
 }
 
 /** Trigger a browser download of the save. Browser-only (Blob + <a download>). */
-export function downloadSaveDoc(doc: SaveDoc, now: Date = new Date()): void {
+export function downloadSaveDoc(doc: SaveDocV2, now: Date = new Date()): void {
   const blob = new Blob([exportSaveJson(doc)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -49,7 +49,13 @@ export function downloadSaveDoc(doc: SaveDoc, now: Date = new Date()): void {
 export type ImportFailureStage = 'parse' | 'version' | 'schema';
 
 export type ImportResult =
-  | { ok: true; doc: SaveDoc; warnings: string[] }
+  | {
+      ok: true;
+      doc: SaveDocV2;
+      warnings: string[];
+      /** Source schemaVersion when the imported file was migrated (US37 retro seam). */
+      migratedFromVersion?: number;
+    }
   | { ok: false; stage: ImportFailureStage; issues: string[] };
 
 /**
@@ -82,7 +88,6 @@ export function parseImportedSave(jsonText: string): ImportResult {
         ],
       };
     case 'older': {
-      // M1: empty chain ⇒ any older version is unreachable in practice; reject cleanly.
       const migrated = migrateRawSave(classified.raw, classified.foundVersion);
       if (!migrated.ok) {
         return {
@@ -91,18 +96,56 @@ export function parseImportedSave(jsonText: string): ImportResult {
           issues: [`no migration path from save version ${classified.foundVersion}`],
         };
       }
-      return finishImport(migrated.doc);
+      return finishImport(migrated.doc, classified.foundVersion);
     }
     case 'current':
       return finishImport(classified.raw);
   }
 }
 
-function finishImport(raw: unknown): ImportResult {
+function finishImport(raw: unknown, migratedFromVersion?: number): ImportResult {
   const validated = validateSaveDoc(raw);
   if (!validated.ok) return { ok: false, stage: 'schema', issues: validated.issues };
   const sanitized = sanitizeSaveDoc(validated.doc);
-  return { ok: true, doc: sanitized.doc, warnings: sanitized.warnings };
+  return {
+    ok: true,
+    doc: sanitized.doc,
+    warnings: sanitized.warnings,
+    ...(migratedFromVersion !== undefined ? { migratedFromVersion } : {}),
+  };
+}
+
+// ---- US37 retro seam across the in-game import reload ----
+//
+// The pause-menu/settings import persists the MIGRATED doc and reloads the page
+// (save-transfer.ts), so the boot machine re-reads the slot as 'current' and the
+// migration provenance would be lost. sessionStorage survives exactly one reload
+// in the same tab — the importer stashes the source version, PreloadScene pops it
+// and hands it to the registry seam. Best-effort: storage being unavailable only
+// skips the retro banners (presentation), never the import itself.
+
+const RETRO_SESSION_KEY = 'codestead.import.fromVersion';
+
+/** Stash the source schemaVersion of a just-imported save before the reload. */
+export function stashImportedFromVersion(version: number): void {
+  try {
+    window.sessionStorage.setItem(RETRO_SESSION_KEY, String(version));
+  } catch {
+    // Presentation-only seam — never let storage quirks break the import.
+  }
+}
+
+/** Pop (read + clear) the stashed source version after the reload, if any. */
+export function popImportedFromVersion(): number | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(RETRO_SESSION_KEY);
+    if (raw === null) return undefined;
+    window.sessionStorage.removeItem(RETRO_SESSION_KEY);
+    const version = Number(raw);
+    return Number.isInteger(version) && version >= 1 ? version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -110,7 +153,7 @@ function finishImport(raw: unknown): ImportResult {
  * write-path safeParse self-check once more (defense in depth); on self-check
  * failure nothing is written and the existing save stays intact.
  */
-export async function applyImportedSave(storage: SaveStorage, doc: SaveDoc): Promise<void> {
+export async function applyImportedSave(storage: SaveStorage, doc: SaveDocV2): Promise<void> {
   const validated = validateSaveDoc(doc);
   if (!validated.ok) {
     throw new Error(`import self-check failed; existing save untouched: ${validated.issues[0]}`);

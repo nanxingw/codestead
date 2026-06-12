@@ -21,7 +21,7 @@
  * Wall clock here is allowed: autosave debounce is on the §2.4 real-time
  * whitelist, and `meta` is display-only by contract.
  */
-import type { RestorableSaveDoc, SaveMeta } from '@codestead/shared';
+import type { RestorableSaveDocV2, SaveMeta } from '@codestead/shared';
 
 import { TIME } from '../sim/data/constants';
 import { advanceMeta, composeSaveDoc, validateSaveDoc } from './save-codec';
@@ -38,7 +38,7 @@ export type SaveFailure =
 export interface SaveManagerOptions {
   storage: SaveStorage;
   /** Immutable snapshot provider — SimApi.serialize (meta-less by type). */
-  snapshot: () => RestorableSaveDoc;
+  snapshot: () => RestorableSaveDocV2;
   /** Meta carried across the session (from boot: loaded doc or fresh new-game meta). */
   meta: SaveMeta;
   appVersion: string;
@@ -50,7 +50,7 @@ export interface SaveManagerOptions {
 
 export class SaveManager {
   private readonly storage: SaveStorage;
-  private readonly snapshot: () => RestorableSaveDoc;
+  private readonly snapshot: () => RestorableSaveDocV2;
   private readonly appVersion: string;
   private readonly now: () => number;
   private readonly onSaved?: SaveManagerOptions['onSaved'];

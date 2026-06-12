@@ -8,8 +8,10 @@
  *
  * NOTE: this module and leveling.ts form a deliberate, benign import cycle
  * (canTill needs effectiveLevel; grantXp needs tilledCapForLevel). Both sides are
- * pure hoisted function declarations referenced only at call time.
+ * pure hoisted function declarations referenced only at call time. M3 adds the same
+ * pattern with building.ts (tilledCount excludes greenhouse interior plots).
  */
+import { greenhousePlotKeys } from './building.js';
 import { TILLED_CAP_BY_LEVEL } from './data/constants.js';
 import { effectiveLevel } from './leveling.js';
 import type { MapMeta, Rect, TileKey, TilePos, TileState, WorldState } from './types.js';
@@ -38,9 +40,16 @@ export function getTile(state: WorldState, pos: TilePos): TileState | null {
   return state.farm.tiles[tileKey(pos)] ?? null;
 }
 
-/** Count of currently tilled farm tiles (monotonic in M1 — no shovel; GDD §1.4). */
+/**
+ * Count of currently tilled farm tiles (monotonic in M1 — no shovel; GDD §1.4).
+ * M3: greenhouse interior plots are real farm tiles (building.ts plot model) but the
+ * §1.4 cap counts OPEN-FIELD farming only ("帽只约束已开垦农业格，装饰/建筑/石径不计") —
+ * the 24 pre-tilled plots must never shrink the player's outdoor allowance.
+ */
 export function tilledCount(state: WorldState): number {
-  return Object.keys(state.farm.tiles).length;
+  const interior = greenhousePlotKeys(state.structures);
+  if (interior.size === 0) return Object.keys(state.farm.tiles).length;
+  return Object.keys(state.farm.tiles).filter((key) => !interior.has(key)).length;
 }
 
 /**

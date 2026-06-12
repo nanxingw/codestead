@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "saveId": "00000000-0000-4000-8000-000000000001",
+    "appVersion": "0.1.0",
+    "createdAtReal": 1780000000000,
+    "savedAtReal": 1780000000000,
+    "saveCount": 0,
+    "playTimeRealSeconds": 0
+  },
+  "time": {
+    "day": 1,
+    "season": "spring",
+    "minuteOfDay": 360,
+    "weatherToday": "sunny",
+    "weatherTomorrow": "sunny",
+    "rngState": "4a230f177293c610ae6069935d719566"
+  },
+  "player": {
+    "tileX": 27,
+    "tileY": 11,
+    "facing": "down",
+    "gold": 100,
+    "selectedSlot": 0
+  },
+  "tools": {
+    "hoe": 1,
+    "wateringCan": 1
+  },
+  "inventory": {
+    "capacity": 12,
+    "slots": [
+      {
+        "itemId": "hoe",
+        "count": 1
+      },
+      {
+        "itemId": "watering_can",
+        "count": 1
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "world": {
+    "farmTiles": {},
+    "shippingBin": []
+  },
+  "progress": {
+    "xp": 0,
+    "profession": null,
+    "counters": {},
+    "achievements": [],
+    "xpHistory": [],
+    "collectionLog": {},
+    "stats": {
+      "totalGoldEarned": 0,
+      "totalHarvests": 0,
+      "harvestsByCrop": {}
+    }
+  },
+  "quests": {
+    "grantedQuestIds": [],
+    "completedCount": 0,
+    "noteRefs": []
+  }
+}

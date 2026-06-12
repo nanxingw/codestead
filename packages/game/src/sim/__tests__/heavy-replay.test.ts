@@ -43,20 +43,26 @@ function replayFingerprint(seed: string, days: number, options?: SimOptions): st
 }
 
 describe(`deterministic replay ×${RUNS} (GDD §3.9 / §2.2)`, () => {
-  it(`same seed + same 28-day schedule ⇒ byte-identical full-run log, ${RUNS} times`, () => {
-    const baseline = replayFingerprint(SEED, DAYS);
-    expect(baseline).toHaveLength(DAYS);
+  // M3 grew the serialized state (structures/quality/sprinklers), so ×100 full-run
+  // fingerprints take seconds, not milliseconds — same acceptance, larger budget.
+  it(
+    `same seed + same 28-day schedule ⇒ byte-identical full-run log, ${RUNS} times`,
+    { timeout: 60_000 },
+    () => {
+      const baseline = replayFingerprint(SEED, DAYS);
+      expect(baseline).toHaveLength(DAYS);
 
-    const divergences: { run: number; firstDivergentDay: number }[] = [];
-    for (let run = 2; run <= RUNS; run++) {
-      const lines = replayFingerprint(SEED, DAYS);
-      const idx = lines.findIndex((line, i) => line !== baseline[i]);
-      if (idx !== -1 || lines.length !== baseline.length) {
-        divergences.push({ run, firstDivergentDay: idx + 1 }); // minimal repro: seed + day
+      const divergences: { run: number; firstDivergentDay: number }[] = [];
+      for (let run = 2; run <= RUNS; run++) {
+        const lines = replayFingerprint(SEED, DAYS);
+        const idx = lines.findIndex((line, i) => line !== baseline[i]);
+        if (idx !== -1 || lines.length !== baseline.length) {
+          divergences.push({ run, firstDivergentDay: idx + 1 }); // minimal repro: seed + day
+        }
       }
-    }
-    expect(divergences).toEqual([]);
-  });
+      expect(divergences).toEqual([]);
+    },
+  );
 
   it('the shipped mode (achievements ON) is byte-deterministic too (×10)', () => {
     // The ×100 above runs the default B-3 deduction mode (achievements off — sim.ts
@@ -73,19 +79,46 @@ describe(`deterministic replay ×${RUNS} (GDD §3.9 / §2.2)`, () => {
     }
   });
 
-  it('achievements ON and OFF runs differ ONLY through achievement rewards (B-3 seam)', () => {
-    // Sanity for the decoupling ruling: the two modes share the identical weather/rng
-    // stream — the first day already diverges in XP (achievement rewards) but the
-    // serialized weather fields stay in lockstep across all 28 days.
+  it('achievements ON and OFF share the weather/rng stream until reward XP changes play', () => {
+    // B-3 decoupling, restated for the M3 rng model: achievement rewards are a pure XP
+    // delta and never touch the night weather roll directly. But M3 quality (§4.5 / PRD 04
+    // US43) makes the HARVEST reducer a second consumer of the same serialized sfc32 stream
+    // (sim/time rngState) — so once reward XP raises the effective level, script R changes
+    // what it plants/harvests, the harvest-draw count diverges, and the shared stream (hence
+    // weather) legitimately splits. Before that first gameplay divergence the two modes are
+    // byte-identical in BOTH weather AND rngState — proving rewards alone never perturb the
+    // stream; only reward-INDUCED gameplay does (script R first crosses a level boundary
+    // around D5 for this seed). This supersedes the M1 "weather is the sole rng consumer,
+    // so the streams lockstep for all 28 days" assumption (quality.ts header).
     const off = replayFingerprint(SEED, DAYS);
     const on = replayFingerprint(SEED, DAYS, { achievements: true });
-    const weatherOf = (line: string): unknown => {
-      const parsed = JSON.parse(line) as { save: { time: unknown } };
-      return parsed.save.time;
+    const timeOf = (line: string): { rngState: string; weatherToday: string; xp?: number } => {
+      const parsed = JSON.parse(line) as {
+        save: { time: { rngState: string; weatherToday: string }; progress: { xp: number } };
+      };
+      return { ...parsed.save.time, xp: parsed.save.progress.xp };
     };
-    for (let day = 0; day < DAYS; day++) {
-      expect(weatherOf(on[day])).toEqual(weatherOf(off[day]));
+
+    // The first day the serialized time block (weather + rngState) splits between the modes.
+    const firstDivergentDay = (() => {
+      for (let day = 0; day < DAYS; day++) {
+        const a = timeOf(on[day]);
+        const b = timeOf(off[day]);
+        if (a.rngState !== b.rngState || a.weatherToday !== b.weatherToday) return day + 1;
+      }
+      return -1;
+    })();
+
+    // Pre-divergence: both rngState AND weather are byte-identical — rewards alone are inert
+    // on the stream. ON already carries MORE xp before the split (rewards are flowing).
+    expect(firstDivergentDay).toBeGreaterThan(1);
+    for (let day = 0; day < firstDivergentDay - 1; day++) {
+      expect(timeOf(on[day]).rngState).toBe(timeOf(off[day]).rngState);
+      expect(timeOf(on[day]).weatherToday).toBe(timeOf(off[day]).weatherToday);
     }
+    expect(timeOf(on[firstDivergentDay - 2]).xp).toBeGreaterThan(
+      timeOf(off[firstDivergentDay - 2]).xp ?? 0,
+    );
   });
 
   it('a save/load seam in the middle of the schedule does not change the bytes', () => {

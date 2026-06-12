@@ -40,6 +40,17 @@
 - M5 前：Phaser 单 chunk 1.41MB（gzip 393KB）超 Vite 500KB 警告线 → manualChunks 分包评估。
 - M2 落地后：左上预留区 scrim 开洞的视觉突兀自然消失。
 
+## F. M3 交付后的待 owner 裁决项（实现按保守口径占位，回填 GDD 后单点替换）
+
+1. **品质判定机制**：现为 PROVISIONAL 平坦分布（金 5%/银 20%/普 75%，seeded RNG，已接入收获路径）；裁决机制后只需替换 `PROVISIONAL_QUALITY_ROLL` 常量。
+2. **洒水器成本**：占位 500g+石20（Lv6）/ 2000g+石60（Lv8），`provisional:true` 标注；GDD §8.2 待回填。另：洒水器无拆除/搬迁通道（只放不收），建议补 removeSprinkler 100% 返还。
+3. **鸡交易入口**：实现为鸡舍面板（买 200g/回收 100g/捡蛋）；拆带鸡鸡舍=鸡自动 100g 回收+蛋退回。GDD §8.3 待回填。
+4. **M3 itemId 命名**：animal_egg（material 类）/artisan_mayonnaise/artisan_jam_*/artisan_dried_*；GDD §6.1/A-14 待回填。
+5. **室内场景形态**：鸡舍/加工棚以面板替代走入式室内；仓库箱 UI、温室室内场景待后续批次；温室 24 格室内耕地建模为建筑脚印内世界坐标 tile（功能等价，待 owner 追认）。
+6. **季节轮替与 T4 作物**：未启用（B-11），NightUpdate #8 保持空操作框架。
+7. **合成占位音频**：whiff/rain_loop/water_pour 为 ffmpeg 合成（manifest 已标注），待真实 CC0 录音替换；FreePD 官网已关停，BGM 走 0lhi/FreePD GitHub 镜像（CC0 已核验）。
+8. **GDD 回填清单**：v2 schema 新增块（farmhouse/unlockedZones/clearedResourceNodes 入 §10.2）、日拾取 faucet 66g→92g（§4.7 与 §8.1 现互相矛盾）、§5.8「2000 XP⇒Lv6」散文与 §5.1 阈值表矛盾（按表实现）、#22 金牌匾实体形态。
+
 ## E. M2 交付后的遗留事项
 
 1. **daemon Origin 白名单缺 4173**：`vite preview` 默认端口被静默拒绝（M2~M4 期间需用 `--port 5173`，或把 4173 加入 DEV_ALLOWED_ORIGINS；M5 同源托管后消失）→ 建议 M5 前补文档或加白。

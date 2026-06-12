@@ -11,9 +11,10 @@
  */
 import type Phaser from 'phaser';
 
-import type { SfxKey } from '../AssetKeys';
+import type { SfxKey, SfxM3Key } from '../AssetKeys';
 import type { SimApi } from '../sim/sim';
 import type { MapMeta, PauseSource } from '../sim/types';
+import type { AudioSettings } from './settings-store';
 
 export const UI_CONTEXT_REGISTRY_KEY = 'codestead:uiContext';
 
@@ -23,16 +24,18 @@ export interface PauseController {
   remove(source: PauseSource): void;
 }
 
-/** Implemented by the audio system (world/render stream); 50ms dedupe lives there. */
+/** Implemented by the audio system (world/render stream); the §11.5 SFX gate lives there. */
 export interface UiAudio {
   /**
-   * `detune` in cents (harvest_pop plays at ±10% pitch ≈ ±170 cents, GDD §6.4);
-   * `volume` 0..1 relative to the master bus (session chime plays at 0.4 —
-   * hud-sessions §3.4 音量 40%).
+   * `detune` in cents; `volume` 0..1 relative to the channel bus (session chime
+   * plays at 0.4 — hud-sessions §3.4 音量 40%). M3: keys cover the full §11.5
+   * list; channel/layer routing is the audio side's (audio/sfx-map.ts).
    */
-  play(key: SfxKey, opts?: { detune?: number; volume?: number }): void;
+  play(key: SfxKey | SfxM3Key, opts?: { detune?: number; volume?: number }): void;
   /** Settings panel pushes master volume (0..100) / muted immediately on change. */
   setMasterVolume(volume: number, muted: boolean): void;
+  /** M3 (PRD 04 US56): full four-channel push — master/muted/bgm/sfx/ui. */
+  setChannelVolumes?(audio: AudioSettings): void;
 }
 
 /** Implemented by the storage layer (storage/** stream); see GDD §10.6. */

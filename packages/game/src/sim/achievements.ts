@@ -21,9 +21,11 @@
  *     sales-settlement cumulative (§5.6/§4.8), and keeping faucet gold out of it
  *     prevents #7/#8 from feeding on their own rewards.
  *
- * Milestone gate: only UNLOCKABLE_MILESTONES entries may fire. In the M1 build that is
- * {'M1.5'} — #21/#22 predicates CAN become true (xp is not capped at Lv5) but must not
- * unlock before M3 (§0.4 milestone boundary).
+ * Milestone gate: only UNLOCKABLE_MILESTONES entries may fire. The M3 build widens the
+ * set to {'M1.5','M3'} — #15~#18/#21/#22 are live (PRD 04 §I), while the M4 rows
+ * (#19 first_quest / #20 notebook) stay inert data until their milestone (§0.4
+ * milestone boundary). The engine itself is untouched by the widening (PRD 02 §F37
+ * data-driven contract).
  */
 import {
   ACHIEVEMENTS,
@@ -35,8 +37,8 @@ import { credit } from './economy.js';
 import { grantXpInPlace } from './leveling.js';
 import type { SimEvent, WorldState } from './types.js';
 
-/** Milestones whose achievements may unlock in THIS build (M3/M4 widen this set). */
-export const UNLOCKABLE_MILESTONES: ReadonlySet<AchievementMilestone> = new Set(['M1.5']);
+/** Milestones whose achievements may unlock in THIS build (M4 widens this set). */
+export const UNLOCKABLE_MILESTONES: ReadonlySet<AchievementMilestone> = new Set(['M1.5', 'M3']);
 
 /** Read-only predicate view over the sim state (counters + tools + xp + profession). */
 export function progressView(state: WorldState): ProgressView {

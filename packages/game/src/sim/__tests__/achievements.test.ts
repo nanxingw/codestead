@@ -5,7 +5,8 @@
  * implementation), joint predicates (#12 gilded / #13 six_crops), reward delivery
  * (instant wallet gold + unified XP pipeline incl. level-ups), strict idempotence
  * (repeat sweeps / reloads / imports), append-only + unknown-id preservation, the
- * milestone gate (#15~#22 cannot fire in the M1 build), the §5.6 budget invariants,
+ * milestone gate (M3 rows live, M4 rows inert in the M3 build), the §5.6 budget
+ * invariants incl. the #21/#22 zero-XP rule,
  * and the B-3 decoupling contract (script R untouched by default; achievements-on
  * mode keeps red line 1).
  */
@@ -232,8 +233,8 @@ describe('idempotence & repeat-unlock protection (PRD 02 US16)', () => {
   });
 });
 
-describe('milestone gate — #15~#22 cannot unlock in the M1 build (§0.4)', () => {
-  it('even fully-satisfied M3/M4 predicates stay locked (incl. xp-cap mastery)', () => {
+describe('milestone gate — M3 rows are live, M4 rows stay locked in the M3 build (§0.4)', () => {
+  it('fully-satisfied M3 predicates fire in §5.6 order; M4 (#19/#20) stay inert', () => {
     const state = stateWith({
       xp: XP_CAP, // satisfies #21 farm_master AND #22 mastery predicates
       counters: {
@@ -242,15 +243,76 @@ describe('milestone gate — #15~#22 cannot unlock in the M1 build (§0.4)', () 
         'built:workshop': 1,
         'built:greenhouse': 1,
         sprinklersPlaced: 1,
-        questsCompleted: 5,
-        notesWritten: 10,
+        questsCompleted: 5, // would satisfy #19 first_quest — must NOT unlock (M4)
+        notesWritten: 10, // would satisfy #20 notebook — must NOT unlock (M4)
       },
     });
     state.progress.profession = 'horticulturist'; // satisfies #18 signed_papers
-    expect(pendingUnlocks(state).map((d) => d.id)).toEqual([]);
+    expect(pendingUnlocks(state).map((d) => d.id)).toEqual([
+      'homestead',
+      'tycoon',
+      'automation_dream',
+      'signed_papers',
+      'farm_master',
+      'mastery',
+    ]);
     const result = checkAchievements(state);
-    expect(result.events).toEqual([]);
-    expect(result.state.progress.achievements).toEqual([]);
+    expect(result.state.progress.achievements).not.toContain('first_quest');
+    expect(result.state.progress.achievements).not.toContain('notebook');
+  });
+
+  it('#21/#22 unlock with ZERO XP movement at the cap; gold lands instantly (§5.6 不变量)', () => {
+    const state = stateWith({ xp: XP_CAP, gold: 100 });
+    const result = checkAchievements(state);
+    expect(unlockEvents(result.events).map((e) => e.id)).toEqual(['farm_master', 'mastery']);
+    expect(result.state.progress.xp).toBe(XP_CAP); // no feedback loop: xp untouched
+    // #21 +1,000g instant to the wallet; #22 is purely commemorative (0/0).
+    expect(result.state.economy.gold).toBe(1_100);
+    expect(unlockEvents(result.events).find((e) => e.id === 'farm_master')).toEqual({
+      type: 'AchievementUnlocked',
+      id: 'farm_master',
+      xp: 0,
+      gold: 1_000,
+    });
+    expect(unlockEvents(result.events).find((e) => e.id === 'mastery')).toEqual({
+      type: 'AchievementUnlocked',
+      id: 'mastery',
+      xp: 0,
+      gold: 0,
+    });
+  });
+
+  it('#16 tycoon needs all three of coop/workshop/greenhouse (B-6 口径)', () => {
+    const two = checkAchievements(
+      stateWith({ counters: { 'built:coop': 1, 'built:workshop': 1, buildingsBuilt: 2 } }),
+    );
+    expect(two.state.progress.achievements).not.toContain('tycoon');
+
+    const three = checkAchievements(
+      stateWith({
+        counters: {
+          'built:coop': 1,
+          'built:workshop': 1,
+          'built:greenhouse': 1,
+          buildingsBuilt: 3,
+        },
+      }),
+    );
+    expect(three.state.progress.achievements).toContain('tycoon');
+    expect(unlockEvents(three.events).find((e) => e.id === 'tycoon')).toEqual({
+      type: 'AchievementUnlocked',
+      id: 'tycoon',
+      xp: 100,
+      gold: 500,
+    });
+  });
+
+  it('#18 signed_papers unlocks through the regular sweep once a profession is held', () => {
+    const state = stateWith({});
+    state.progress.profession = 'artisan';
+    const result = checkAchievements(state);
+    expect(unlockEvents(result.events).map((e) => e.id)).toEqual(['signed_papers']);
+    expect(result.state.progress.xp).toBe(0); // commemorative: 0 XP (§5.6)
   });
 });
 

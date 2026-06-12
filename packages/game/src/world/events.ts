@@ -27,6 +27,14 @@ export const REGISTRY_KEYS = {
    * source on the next tick instead of waiting for a first in-world input.
    */
   menuEntry: 'menuEntry',
+  /**
+   * One-shot retro catch-up seam (PRD 04 US37 / GDD §5.3 M1→M3 迁移): the boot/
+   * import path stores the SOURCE schemaVersion of a just-migrated save here;
+   * UIScene consumes it once (then removes the key) to replay Lv6..N FarmLevelUp
+   * banners plus the 「木匠服务已开通」 quiet line. Presentation only — zones/
+   * blueprints/shop rows all derive from xp at hydrate, never from this key.
+   */
+  retroFromVersion: 'retroFromVersion',
 } as const;
 
 export const WORLD_EVENTS = {

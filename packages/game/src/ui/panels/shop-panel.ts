@@ -15,6 +15,7 @@
 import type Phaser from 'phaser';
 
 import { SFX } from '../../AssetKeys';
+import { INVENTORY_EXPANSION_PRICE, MATERIAL_SHOP_BUY_PRICE } from '../../sim/data/buildings';
 import { SHOP_CATALOG_M1, type ShopEntryDef } from '../../sim/data/constants';
 import { getItemDef, seedItemId } from '../../sim/data/items';
 import { catalog, type ShopEntryView } from '../../sim/economy';
@@ -24,6 +25,7 @@ import type { WorldState } from '../../sim/types';
 import { formatGold } from '../format';
 import { DEPTH, SHOP_PANEL } from '../layout';
 import { PALETTE } from '../palette';
+import { qualityOf, stackUnitSalePrice, withQualityMark } from '../quality-view';
 import { safe } from '../safe';
 import { t } from '../strings';
 import type { UiPanelId } from '../ui-stack';
@@ -215,14 +217,138 @@ export class ShopPanel implements Panel {
       for (const text of row.texts) this.rowObjects.push(text);
     });
 
+    let nextRow = entries.length;
     if (hiddenCount > 0) {
-      const y = p.y + 40 + entries.length * ROW_HEIGHT;
+      const y = p.y + 40 + nextRow * ROW_HEIGHT;
       this.rowObjects.push(
         uiText(this.host.scene, p.x + 12, y + 3, t('shop.folded', { n: hiddenCount }), {
           color: PALETTE.ui.textDim,
         }).setDepth(DEPTH.panel + 1),
       );
+      nextRow += 1;
     }
+    this.renderSupplyRows(state, nextRow);
+  }
+
+  /**
+   * M3 supplies section (PRD 04 §E/§H): the wood/stone buy-in floor (5g each, anti-soft-
+   * lock §8.1/§4.4) and the 1,000g backpack expansion (12 → 24, level-independent §6.2/§6.9).
+   * These are NOT SHOP_CATALOG_M1 rows (that table is the frozen §4.3 M1 contract) — they
+   * route to the dedicated buyMaterial / expandInventory SimCommands. Mouse-driven like the
+   * catalog rows; the sim clamps and reports the single blocked reason.
+   */
+  private renderSupplyRows(state: Readonly<WorldState>, startRow: number): void {
+    const p = SHOP_PANEL;
+    const headerY = p.y + 40 + startRow * ROW_HEIGHT;
+    this.rowObjects.push(
+      uiText(this.host.scene, p.x + 12, headerY + 3, t('shop.supplies_header'), {
+        color: PALETTE.ui.textDim,
+      }).setDepth(DEPTH.panel + 1),
+    );
+
+    const supplyRows: {
+      labelKey: string;
+      price: number;
+      affordable: boolean;
+      onBuy: () => void;
+    }[] = [
+      {
+        labelKey: 'shop.buy_wood',
+        price: MATERIAL_SHOP_BUY_PRICE.wood,
+        affordable: state.economy.gold >= MATERIAL_SHOP_BUY_PRICE.wood,
+        onBuy: () => this.tryBuyMaterial('wood'),
+      },
+      {
+        labelKey: 'shop.buy_stone',
+        price: MATERIAL_SHOP_BUY_PRICE.stone,
+        affordable: state.economy.gold >= MATERIAL_SHOP_BUY_PRICE.stone,
+        onBuy: () => this.tryBuyMaterial('stone'),
+      },
+    ];
+    // The expansion is one-time: shown as "已扩容" once capacity flips to 24, else a buy row.
+    const expanded = state.inventory.capacity >= 24;
+    supplyRows.push({
+      labelKey: 'shop.expand_backpack',
+      price: INVENTORY_EXPANSION_PRICE,
+      affordable: expanded || state.economy.gold >= INVENTORY_EXPANSION_PRICE,
+      onBuy: () => this.tryExpandBackpack(),
+    });
+
+    supplyRows.forEach((sr, i) => {
+      const y = headerY + (i + 1) * ROW_HEIGHT;
+      const row = this.addRow(p.x + 8, y, p.width - 16);
+      const owned = sr.labelKey === 'shop.expand_backpack' && expanded;
+      const nameColor = owned
+        ? PALETTE.green.light
+        : sr.affordable
+          ? PALETTE.ui.text
+          : PALETTE.ui.textDim;
+      row.texts.push(
+        uiText(this.host.scene, p.x + 12, y + 3, t(sr.labelKey), { color: nameColor }).setDepth(
+          DEPTH.panel + 1,
+        ),
+      );
+      const priceLabel = owned
+        ? t('shop.backpack_done')
+        : sr.affordable
+          ? `${formatGold(sr.price)}g`
+          : `${formatGold(sr.price)}g · ${t('shop.gold_gap', { gap: formatGold(sr.price - state.economy.gold) })}`;
+      row.texts.push(
+        uiText(this.host.scene, p.x + p.width - 12, y + 3, priceLabel, {
+          color: owned
+            ? PALETTE.green.light
+            : sr.affordable
+              ? PALETTE.gold.light
+              : PALETTE.ui.textDim,
+        })
+          .setOrigin(1, 0)
+          .setDepth(DEPTH.panel + 1),
+      );
+      if (owned) {
+        row.zone.on('pointerdown', () => this.host.toast('toast.already_owned'));
+      } else {
+        row.zone.on('pointerdown', () => sr.onBuy());
+      }
+      for (const text of row.texts) this.rowObjects.push(text);
+    });
+  }
+
+  private tryBuyMaterial(material: 'wood' | 'stone'): void {
+    const now = this.host.scene.time.now;
+    if (now - this.lastClickAt < CLICK_DEBOUNCE_MS) return;
+    this.lastClickAt = now;
+    const state = this.host.state();
+    const itemId = material === 'wood' ? 'material_wood' : 'material_stone';
+    if (state.economy.gold < MATERIAL_SHOP_BUY_PRICE[material]) {
+      this.host.toast('toast.not_enough_gold');
+      this.host.playSfx(SFX.uiError);
+      return;
+    }
+    if (maxAddable(state.inventory, itemId) === 0) {
+      this.host.toast('toast.inventory_full');
+      this.host.playSfx(SFX.uiError);
+      return;
+    }
+    this.host.dispatch({ type: 'buyMaterial', material, requested: 1 });
+    this.refresh();
+  }
+
+  private tryExpandBackpack(): void {
+    const now = this.host.scene.time.now;
+    if (now - this.lastClickAt < CLICK_DEBOUNCE_MS) return;
+    this.lastClickAt = now;
+    const state = this.host.state();
+    if (state.inventory.capacity >= 24) {
+      this.host.toast('toast.already_owned');
+      return;
+    }
+    if (state.economy.gold < INVENTORY_EXPANSION_PRICE) {
+      this.host.toast('toast.not_enough_gold');
+      this.host.playSfx(SFX.uiError);
+      return;
+    }
+    this.host.dispatch({ type: 'expandInventory' });
+    this.refresh();
   }
 
   private tryBuy(view: ShopEntryView, requested: number): void {
@@ -291,13 +417,17 @@ export class ShopPanel implements Panel {
     this.cursor = Math.min(this.cursor, rows.length - 1);
     rows.forEach(({ stack, slot }, i) => {
       const def = getItemDef(stack.itemId);
-      const sellable = def.category === 'crop' || def.category === 'material';
+      // M3: artisan goods consign like crops (GDD §6.1 寄售 row; PRD 04 US75).
+      const sellable =
+        def.category === 'crop' || def.category === 'material' || def.category === 'artisan_good';
       const refundable = def.category === 'seed';
       const y = p.y + 60 + i * ROW_HEIGHT;
       const row = this.addRow(p.x + 8, y, p.width - 16);
       const dim = !sellable && !refundable;
+      // Quality is double-encoded in text rows too (◆银 / ★金, §4.5; PRD 04 US45).
+      const name = withQualityMark(t(def.nameKey), qualityOf(stack));
       row.texts.push(
-        uiText(this.host.scene, p.x + 12, y + 3, `${t(def.nameKey)} ×${stack.count}`, {
+        uiText(this.host.scene, p.x + 12, y + 3, `${name} ×${stack.count}`, {
           color: dim
             ? PALETTE.ui.textDim
             : i === this.cursor
@@ -305,10 +435,12 @@ export class ShopPanel implements Panel {
               : PALETTE.ui.text,
         }).setDepth(DEPTH.panel + 1),
       );
+      // Unit price through the §4.5 single entry — silver/gold and profession
+      // multipliers show the real consignment value (金+园艺师芜菁 = 62, US44).
       const tag = refundable
         ? `${def.sellPrice ?? 0}g · 退货`
         : sellable
-          ? `${def.sellPrice ?? 0}g · 今晚结算 ✓`
+          ? `${stackUnitSalePrice(state, stack)}g · 今晚结算 ✓`
           : '—';
       row.texts.push(
         uiText(this.host.scene, p.x + p.width - 12, y + 3, tag, {
@@ -363,7 +495,11 @@ export class ShopPanel implements Panel {
       if (!row?.stack) return;
       const def = getItemDef(row.stack.itemId);
       if (def.category === 'seed') this.sellFrom(row.slot, count, true);
-      else if (def.category === 'crop' || def.category === 'material')
+      else if (
+        def.category === 'crop' ||
+        def.category === 'material' ||
+        def.category === 'artisan_good' // M3 consignment (GDD §6.1)
+      )
         this.sellFrom(row.slot, count, false);
       else {
         this.host.toast('toast.not_sellable');

@@ -49,7 +49,9 @@ export class PauseMenuPanel implements Panel {
       () => void this.manualSave(),
       host.ctx.saveTransfer === undefined,
     );
+    addButton(t('menu.build'), () => host.openChild('buildCatalog')); // M3 (§8.3 入口 2)
     addButton(t('menu.achievements'), () => host.openChild('achievements')); // M1.5 成就 tab
+    addButton(t('menu.codex'), () => host.openChild('codex')); // M3 图鉴 (§5.8)
     addButton(t('menu.settings'), () => host.openChild('settings'));
     addButton(t('menu.keys'), () => host.openChild('keysHelp'));
     addButton(
